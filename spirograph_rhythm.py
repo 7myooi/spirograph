@@ -1,10 +1,13 @@
+
 # -*- coding: utf-8 -*-
 import os
 import random
 
 import pyxel
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ---------- 定数 ----------
 SCREEN_W = 256
 SCREEN_H = 256
 HUD_H = 40
@@ -14,7 +17,7 @@ PLAY_BOTTOM = SCREEN_H - FOOTER_H
 PATH_LENGTH = 360 * 28
 
 WINDOW_TITLE = "Spirograph Rhythm : Matrix"
-FONT_PATH = "../pyxel_examples/assets/umplus_j10r.bdf"
+FONT_PATH = os.path.join(BASE_DIR, "umplus_j10r.bdf")
 
 MSG_TITLE = "スピログラフ リズム"
 MSG_TITLE_1 = "ノーツは一定リズムで1つずつ流れます"
@@ -30,11 +33,9 @@ MSG_GOOD = "グッド"
 MSG_MISS = "ミス"
 MSG_EARLY = "早すぎ"
 MSG_LATE = "遅すぎ"
-MSG_SPEED_UP = "はやさを上げた"
-MSG_SPEED_DOWN = "はやさを下げた"
+MSG_PAUSED = "PAUSED"
 MSG_CURVE_NEW = "新しい軌道を生成"
 MSG_CURVE_RETRY = "同じ軌道でやりなおし"
-MSG_PAUSED = "PAUSED"
 
 MSG_GAME_OVER = "ゲームオーバー"
 MSG_GAME_OVER_SCORE = "スコア {score}"
@@ -50,9 +51,7 @@ MSG_COMBO_LABEL = "CB {combo}"
 BTN_RETRY = "RETRY"
 BTN_NEW = "NEW"
 BTN_RESUME = "RESUME"
-BTN_MENU = "MENU"
 
-NOTE_RADIUS = 7
 TAP_RADIUS_MOBILE = 28
 NOTE_TAP_RADIUS = 26
 HIT_WINDOW_PERFECT = 14
@@ -67,7 +66,6 @@ SPATIAL_GAP_MIN = 120
 SPATIAL_GAP_MAX = 260
 
 SUCCESS_SPEED_STEP = 0.05
-MANUAL_SPEED_STEP = 0.2
 
 SEG_BRIGHT_AGE = 60
 SEG_DIM_AGE = 180
@@ -75,6 +73,70 @@ SEG_MARK_AGE = 320
 SEG_BRIGHT_AGE_FOCUS = 40
 SEG_DIM_AGE_FOCUS = 110
 SEG_MARK_AGE_FOCUS = 180
+SAFE_MARGIN = 20
+
+RESULT_RULES = {
+    "perfect": {
+        "message": MSG_PERFECT,
+        "flash_kind": "perfect",
+        "sound": 0,
+        "flash_timer": 10,
+        "combo_mode": "add",
+        "combo_add": 1,
+        "life_add": 0,
+        "score_base": 180,
+        "score_combo": 4,
+        "gain_speed": True,
+    },
+    "good": {
+        "message": MSG_GOOD,
+        "flash_kind": "good",
+        "sound": 1,
+        "flash_timer": 10,
+        "combo_mode": "add",
+        "combo_add": 1,
+        "life_add": 0,
+        "score_base": 100,
+        "score_combo": 2,
+        "gain_speed": True,
+    },
+    "early": {
+        "message": MSG_EARLY,
+        "flash_kind": "miss",
+        "sound": 2,
+        "flash_timer": 10,
+        "combo_mode": "reset",
+        "combo_add": 0,
+        "life_add": -1,
+        "score_base": 0,
+        "score_combo": 0,
+        "gain_speed": False,
+    },
+    "late": {
+        "message": MSG_LATE,
+        "flash_kind": "miss",
+        "sound": 2,
+        "flash_timer": 10,
+        "combo_mode": "reset",
+        "combo_add": 0,
+        "life_add": -1,
+        "score_base": 0,
+        "score_combo": 0,
+        "gain_speed": False,
+    },
+    "miss": {
+        "message": MSG_MISS,
+        "flash_kind": "miss",
+        "sound": 2,
+        "flash_timer": 8,
+        "combo_mode": "reset",
+        "combo_add": 0,
+        "life_add": -1,
+        "score_base": 0,
+        "score_combo": 0,
+        "gain_speed": False,
+    },
+}
 
 
 class App:
@@ -93,6 +155,12 @@ class App:
         self.cy = pyxel.height // 2 + 6
         self.rng = random.Random()
 
+        self.columns = []
+        self.nodes = []
+        self.path_points = []
+        self.notes = []
+        self.revealed_segments = []
+
         self.state = "title"
         self.stage = 1
         self.score = 0
@@ -101,31 +169,49 @@ class App:
         self.lives = 10
         self.speed = DEFAULT_SPEED
         self.beat_interval = DEFAULT_BEAT_INTERVAL
+        self.song_time = 0
         self.message = MSG_DEFAULT
         self.flash_timer = 0
         self.hit_flash_kind = "perfect"
         self.menu_open = False
-        self.menu_open = False
-
-        self.path_points = []
-        self.notes = []
-        self.song_time = 0
-        self.revealed_segments = []
+        self.fever = False
+        self.fever_timer = 0
+        self.fever_notice_timer = 0
 
         self.matrix_chars = "01X+-#*<>[]{}|:;."
         self.make_matrix_columns()
         self.make_noise_nodes()
         self.setup_sounds()
-        self.menu_open = False
         self.build_stage(new_curve=True)
         pyxel.run(self.update, self.draw)
 
     # ---------- 基本 ----------
     def text(self, x, y, message, color):
         if self.font:
-            pyxel.text(x, y, message, color, self.font)
-        else:
-            pyxel.text(x, y, message, color)
+            try:
+                pyxel.text(x, y, message, color, self.font)
+                return
+            except Exception:
+                pass
+        pyxel.text(x, y, message, color)
+
+    def text_width(self, message):
+        if self.font:
+            try:
+                return self.font.text_width(message)
+            except Exception:
+                pass
+        return len(message) * 4
+
+    def draw_text_center(self, x, y, w, message, color):
+        tw = self.text_width(message)
+        tx = x + (w - tw) // 2
+        self.text(tx, y, message, color)
+
+    def draw_menu_button(self, x, y, w, h, label, border_color):
+        pyxel.rect(x, y, w, h, 1)
+        pyxel.rectb(x, y, w, h, border_color)
+        self.draw_text_center(x, y + 4, w, label, 11)
 
     def setup_sounds(self):
         try:
@@ -145,6 +231,7 @@ class App:
     def gain_speed_on_success(self):
         self.speed = min(MAX_SPEED, self.speed + SUCCESS_SPEED_STEP)
 
+    # ---------- 進行 ----------
     def reset_run(self):
         self.stage = 1
         self.score = 0
@@ -165,11 +252,16 @@ class App:
 
     def build_stage(self, new_curve=True):
         if new_curve or not self.path_points:
-            self.randomize_curve()
-            self.path_points = [self.calc_point(t) for t in range(PATH_LENGTH)]
+            while True:
+                self.randomize_curve()
+                candidate_points = [self.calc_point(t) for t in range(PATH_LENGTH)]
+                if self.path_is_playable(candidate_points):
+                    self.path_points = candidate_points
+                    break
 
         self.beat_interval = max(
-            MIN_BEAT_INTERVAL, DEFAULT_BEAT_INTERVAL - (self.stage - 1) * 2
+            MIN_BEAT_INTERVAL,
+            DEFAULT_BEAT_INTERVAL - (self.stage - 1) * 2,
         )
         self.notes = self.build_notes()
         self.song_time = 0
@@ -229,6 +321,7 @@ class App:
         y = (main_y + orbit_y + sub_y) * mod
         return int(self.cx + x), int(self.cy + y)
 
+    # ノーツ種類やステージ個性を入れる場所
     def build_notes(self):
         notes = []
         note_count = NOTE_COUNT_BASE + self.stage * NOTE_COUNT_STEP
@@ -301,6 +394,7 @@ class App:
         progress = self.note_progress(note)
         if progress is None:
             return None
+
         if progress <= 1.0:
             idx = int(
                 note["start_index"]
@@ -311,6 +405,7 @@ class App:
                 note["target_index"]
                 + (note["exit_index"] - note["target_index"]) * min(progress - 1.0, 1.0)
             )
+
         idx = max(0, min(idx, len(self.path_points) - 1))
         return self.path_points[idx]
 
@@ -320,23 +415,17 @@ class App:
         return (dx * dx + dy * dy) ** 0.5
 
     def in_focus_zone(self, x, y, margin=0):
-        # 中央付近は背景を抜いて、軌跡とノーツを見やすくする
         rx = 74 + margin
         ry = 60 + margin
         return abs(x - self.cx) <= rx and abs(y - self.cy) <= ry
 
     def bg_fade(self, x, y):
-        # 背景の密度を中央に向かって自然に薄くする
         rx = 92.0
         ry = 74.0
         dx = abs(x - self.cx) / rx
         dy = abs(y - self.cy) / ry
         d = max(dx, dy)
-        if d < 0.0:
-            d = 0.0
-        if d > 1.0:
-            d = 1.0
-        # smoothstep
+        d = max(0.0, min(1.0, d))
         return d * d * (3.0 - 2.0 * d)
 
     def segment_age_limits(self, seg):
@@ -355,14 +444,15 @@ class App:
                 kept.append(seg)
         self.revealed_segments = kept
 
+    # ---------- メニュー矩形 ----------
     def gear_rect(self):
         return SCREEN_W - 24, 8, 16, 16
 
     def pause_panel_rect(self):
-        w = 132
-        h = 86
+        w = 156
+        h = 112
         x = (SCREEN_W - w) // 2
-        y = (SCREEN_H - h) // 2 - 8
+        y = (SCREEN_H - h) // 2 - 4
         return x, y, w, h
 
     def point_in_rect(self, px, py, x, y, w, h):
@@ -370,28 +460,31 @@ class App:
 
     def resume_button_rect(self):
         x, y, w, h = self.pause_panel_rect()
-        return x + 14, y + 34, w - 28, 12
+        return x + 16, y + 34, w - 32, 16
 
     def retry_button_rect(self):
         x, y, w, h = self.pause_panel_rect()
-        return x + 14, y + 50, w - 28, 12
+        return x + 16, y + 56, w - 32, 16
 
     def new_button_rect(self):
         x, y, w, h = self.pause_panel_rect()
-        return x + 14, y + 66, w - 28, 12
+        return x + 16, y + 78, w - 32, 16
 
     def is_menu_area_tap(self):
         if not pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
             return False
+
         x = pyxel.mouse_x
         y = pyxel.mouse_y
         gx, gy, gw, gh = self.gear_rect()
         if self.point_in_rect(x, y, gx, gy, gw, gh):
             return True
+
         if self.menu_open:
             px, py, pw, ph = self.pause_panel_rect()
             if self.point_in_rect(x, y, px, py, pw, ph):
                 return True
+
         return False
 
     # ---------- 入力 ----------
@@ -400,8 +493,32 @@ class App:
         key_tap = pyxel.btnp(pyxel.KEY_SPACE) or pyxel.btnp(pyxel.KEY_RETURN)
         return mouse_tap or key_tap
 
-    def is_footer_tap(self):
-        return False
+    def should_ignore_tap(self):
+        if not pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
+            return False
+        return pyxel.mouse_y < HUD_H or self.is_menu_area_tap()
+
+    def is_keyboard_tap(self):
+        return pyxel.btnp(pyxel.KEY_SPACE) or pyxel.btnp(pyxel.KEY_RETURN)
+
+    def is_mouse_tap_on_target(self, judge_point, note_pos):
+        judge_ok = (
+            self.distance(pyxel.mouse_x, pyxel.mouse_y, judge_point[0], judge_point[1])
+            <= TAP_RADIUS_MOBILE
+        )
+
+        note_ok = False
+        if note_pos:
+            note_ok = (
+                self.distance(pyxel.mouse_x, pyxel.mouse_y, note_pos[0], note_pos[1])
+                <= NOTE_TAP_RADIUS
+            )
+
+        return judge_ok or note_ok
+
+    def register_empty_tap_miss(self):
+        self.combo = 0
+        self.message = MSG_MISS
 
     def handle_ui_buttons(self):
         if not pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
@@ -441,82 +558,18 @@ class App:
         if not self.point_in_rect(x, y, px, py, pw, ph):
             self.menu_open = False
 
-    def handle_tap(self):
-        if not self.tap_requested():
-            return
-
-        if pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
-            if pyxel.mouse_y < HUD_H or self.is_menu_area_tap():
-                return
-
-        note = self.current_note()
-        judge_point = self.current_judge_point()
-        note_pos = self.note_position(note)
-
-        if not note or not judge_point:
-            self.combo = 0
-            self.message = MSG_MISS
-            return
-
-        is_keyboard = pyxel.btnp(pyxel.KEY_SPACE) or pyxel.btnp(pyxel.KEY_RETURN)
-
-        if not is_keyboard and pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
-            judge_ok = (
-                self.distance(
-                    pyxel.mouse_x, pyxel.mouse_y, judge_point[0], judge_point[1]
-                )
-                <= TAP_RADIUS_MOBILE
-            )
-            note_ok = False
-            if note_pos:
-                note_ok = (
-                    self.distance(
-                        pyxel.mouse_x, pyxel.mouse_y, note_pos[0], note_pos[1]
-                    )
-                    <= NOTE_TAP_RADIUS
-                )
-            if not (judge_ok or note_ok):
-                self.combo = 0
-                self.message = MSG_MISS
-                return
-
-        delta = note["hit_time"] - self.song_time
+    # ---------- 判定 ----------
+    def classify_tap_result(self, delta):
         abs_delta = abs(delta)
-        note["judged"] = True
-
         if abs_delta <= HIT_WINDOW_PERFECT:
-            note["result"] = "perfect"
-            self.combo += 1
-            self.best_combo = max(self.best_combo, self.combo)
-            self.score += 180 + self.combo * 4
-            self.message = MSG_PERFECT
-            self.hit_flash_kind = "perfect"
-            self.gain_speed_on_success()
-            self.play_sound(0, 0)
-        elif abs_delta <= HIT_WINDOW_GOOD:
-            note["result"] = "good"
-            self.combo += 1
-            self.best_combo = max(self.best_combo, self.combo)
-            self.score += 100 + self.combo * 2
-            self.message = MSG_GOOD
-            self.hit_flash_kind = "good"
-            self.gain_speed_on_success()
-            self.play_sound(0, 1)
-        elif delta > 0:
-            note["result"] = "early"
-            self.combo = 0
-            self.lives -= 1
-            self.message = MSG_EARLY
-            self.hit_flash_kind = "miss"
-            self.play_sound(0, 2)
-        else:
-            note["result"] = "late"
-            self.combo = 0
-            self.lives -= 1
-            self.message = MSG_LATE
-            self.hit_flash_kind = "miss"
-            self.play_sound(0, 2)
+            return "perfect"
+        if abs_delta <= HIT_WINDOW_GOOD:
+            return "good"
+        if delta > 0:
+            return "early"
+        return "late"
 
+    def append_revealed_segment(self, note):
         end_x, end_y = self.path_points[note["target_index"]]
         self.revealed_segments.append(
             {
@@ -527,7 +580,91 @@ class App:
                 "focus": self.in_focus_zone(end_x, end_y, 8),
             }
         )
-        self.flash_timer = 10
+
+    # FEVERゲージ、倍率、回復などの報酬を入れる場所
+    def apply_result_state(self, result):
+        rule = RESULT_RULES[result]
+
+        # コンボ更新
+        if rule["combo_mode"] == "reset":
+            self.combo = 0
+        else:
+            self.combo += rule["combo_add"]
+            self.best_combo = max(self.best_combo, self.combo)
+
+        # FEVER設定
+        was_fever = self.fever
+
+        # 20コンボ以上の場合
+        if self.combo >= 20:
+
+            # FEVER設定をオンにする
+            self.fever = True
+
+            # 今ちょうど FEVER に入った瞬間だけ、通知タイマーを45にする
+            if not was_fever:
+                self.fever_notice_timer = 45
+
+        # 20コンボ未満ならFEVER設定オフ
+        else:
+            self.fever = False
+
+        # ライフ更新
+        self.lives += rule["life_add"]
+
+        # スコア加算
+        multiplier = 2 if self.fever else 1
+        # スコア倍率をかける（20 コンボ以上のときだけスコアをx2にする）
+        self.score += (rule["score_base"] + self.combo * rule["score_combo"]) * multiplier
+
+        # メッセージ更新
+        self.message = rule["message"]
+        self.hit_flash_kind = rule["flash_kind"]
+        self.flash_timer = rule["flash_timer"]
+
+        if rule["gain_speed"]:
+            self.gain_speed_on_success()
+
+        self.play_sound(0, rule["sound"])
+
+    def judge_note_result(self, note, result):
+        note["judged"] = True
+        note["result"] = result
+        self.append_revealed_segment(note)
+        self.apply_result_state(result)
+
+    def handle_tap(self):
+        if not self.tap_requested():
+            return
+
+        if self.should_ignore_tap():
+            return
+
+        note = self.current_note()
+        judge_point = self.current_judge_point()
+        note_pos = self.note_position(note)
+
+        if not note or not judge_point:
+            self.register_empty_tap_miss()
+            return
+
+        if not self.is_keyboard_tap() and pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT):
+            if not self.is_mouse_tap_on_target(judge_point, note_pos):
+                self.register_empty_tap_miss()
+                return
+
+        delta = note["hit_time"] - self.song_time
+        result = self.classify_tap_result(delta)
+        self.judge_note_result(note, result)
+
+    def handle_miss(self):
+        note = self.current_note()
+        if not note:
+            return
+
+        delta = note["hit_time"] - self.song_time
+        if delta < -HIT_WINDOW_GOOD:
+            self.judge_note_result(note, "miss")
 
     # ---------- 更新 ----------
     def update(self):
@@ -551,7 +688,6 @@ class App:
     def update_play(self):
         self.handle_ui_buttons()
 
-        # メニュー表示中はゲーム進行を完全停止
         if self.menu_open:
             self.message = MSG_PAUSED
             return
@@ -563,8 +699,10 @@ class App:
             self.message = MSG_CURVE_NEW
 
         self.song_time += self.speed
-        self.handle_miss()
+
+        # 入力を先に処理して、境界フレームの押し負け感を減らす
         self.handle_tap()
+        self.handle_miss()
 
         if self.flash_timer > 0:
             self.flash_timer -= 1
@@ -580,44 +718,16 @@ class App:
             self.play_sound(0, 3)
             self.build_stage(new_curve=True)
 
-    def handle_miss(self):
-        note = self.current_note()
-        if not note:
-            return
-
-        delta = note["hit_time"] - self.song_time
-        if delta < -HIT_WINDOW_GOOD:
-            note["judged"] = True
-            note["result"] = "miss"
-            end_x, end_y = self.path_points[note["target_index"]]
-            self.revealed_segments.append(
-                {
-                    "start_index": note["start_index"],
-                    "end_index": note["target_index"],
-                    "result": "miss",
-                    "age": 0,
-                    "focus": self.in_focus_zone(end_x, end_y, 8),
-                }
-            )
-            self.combo = 0
-            self.lives -= 1
-            self.message = MSG_MISS
-            self.hit_flash_kind = "miss"
-            self.flash_timer = 8
-            self.play_sound(0, 2)
-
     # ---------- 背景描画 ----------
+    # コンボやFEVERで画面のテンションを上げる場所
     def draw_background(self):
         pyxel.cls(0)
         t = pyxel.frame_count
 
-        # うっすら走査線は全体に通す
         for y in range(PLAY_TOP, PLAY_BOTTOM, 6):
             if y % 12 == 0:
                 pyxel.line(0, y, SCREEN_W, y, 1)
 
-        # 文字っぽい縦データ列
-        # 中央で完全に消さず、密度と明るさだけ落とす
         for col in self.columns:
             x = col["x"]
             head_y = (t * col["speed"] + col["offset"]) % (PLAY_BOTTOM - PLAY_TOP + 80)
@@ -632,7 +742,6 @@ class App:
                 if fade < 0.08:
                     continue
 
-                # 中央付近ほど間引く
                 gate = (x * 7 + y * 5 + t + i * 11 + col["phase"]) % 100
                 if fade < 0.22 and gate > 22:
                     continue
@@ -653,13 +762,17 @@ class App:
                     else:
                         c = 3
 
+                if self.fever:
+                    if c == 1:
+                        c = 3
+                    elif c == 3:
+                        c = 11
+
                 self.text(x, y, ch, c)
 
-        # 控えめなHUD縦線も中央で弱く感じる程度に全体へ
         for x in range(0, SCREEN_W, 32):
             pyxel.line(x, PLAY_TOP, x, PLAY_BOTTOM, 1)
 
-        # 小さいノード
         for x, y, blink in self.nodes:
             fade = self.bg_fade(x, y)
             if fade < 0.20:
@@ -671,7 +784,6 @@ class App:
             else:
                 pyxel.pset(x, y, 3 if fade > 0.35 else 1)
 
-        # 中央は目印を置かず、ヒットフラッシュだけ重ねる
         if self.flash_timer > 0:
             if self.hit_flash_kind == "perfect":
                 col1, col2 = 7, 11
@@ -705,7 +817,6 @@ class App:
         return 3
 
     def draw_revealed_curve(self):
-        # 確定済み軌跡は、時間経過で 発光 -> 暗線 -> マーカー の順に薄くする
         for seg in self.revealed_segments:
             start_idx = seg["start_index"]
             end_idx = seg["end_index"]
@@ -719,7 +830,6 @@ class App:
                     x2, y2 = self.path_points[i]
 
                     if age < bright_age:
-                        # 新しい軌跡は発光つき
                         palette = self.segment_palette(result)
                         if result in ("perfect", "good"):
                             glow = 3 if result == "good" else 11
@@ -729,7 +839,6 @@ class App:
                         color = palette[((i - start_idx) // 18) % len(palette)]
                         pyxel.line(x1, y1, x2, y2, color)
                     else:
-                        # 古くなったら暗い細線だけ
                         if result == "perfect":
                             color = 11 if ((i - start_idx) // 28) % 2 == 0 else 3
                         elif result == "good":
@@ -738,7 +847,6 @@ class App:
                             color = 1
                         pyxel.line(x1, y1, x2, y2, color)
 
-            # 終点マーカーは線が消えたあともしばらく残す
             if age < mark_age:
                 mx, my = self.path_points[end_idx]
                 if age < bright_age:
@@ -758,7 +866,6 @@ class App:
                 pyxel.rectb(mx - 2, my - 2, 4, 4, inner)
                 pyxel.pset(mx, my, dot)
 
-        # ライブ軌跡は現在ノーツぶんだけ残す
         current = self.current_note()
         progress = self.note_progress(current) if current else None
         if current and progress is not None:
@@ -774,7 +881,6 @@ class App:
                     * min(progress - 1.0, 1.0)
                 )
 
-            # 現在の進行区間は短め・緑寄りだけで見せる
             live_start = max(current["start_index"] + 1, current_idx - 120)
             for i in range(live_start, current_idx + 1):
                 x1, y1 = self.path_points[i - 1]
@@ -789,10 +895,6 @@ class App:
                     color = 7
 
                 pyxel.line(x1, y1, x2, y2, color)
-
-    def draw_note_tail(self, note, pos):
-        # 見やすさ優先版では、ノーツの後ろを追う直線は描かない
-        return
 
     def draw_notes(self):
         current = self.current_note()
@@ -827,7 +929,6 @@ class App:
         ring_color = 11 if near_hit else 3
         core_color = 7 if very_near else 11
         pulse = (pyxel.frame_count // 8) % 2
-
         outer = TAP_RADIUS_MOBILE - 8 + (pulse if near_hit else 0)
 
         pyxel.rectb(x - outer // 2, y - outer // 2, outer, outer, 1)
@@ -841,6 +942,7 @@ class App:
         pyxel.line(x, y + 8, x, y + 18, ring_color)
 
     # ---------- UI ----------
+    # コンボやFEVERで画面のテンションを上げる場所
     def draw_hud(self):
         pyxel.rect(0, 0, SCREEN_W, HUD_H, 0)
         pyxel.line(0, HUD_H - 1, SCREEN_W, HUD_H - 1, 3)
@@ -868,42 +970,23 @@ class App:
         pyxel.line(x + 3, y + 13, x + 4, y + 12, 11)
 
     def draw_pause_panel(self):
-        px, py, pw, ph = self.pause_panel_rect()
-
-        # 疑似半透明の黒幕
-        try:
-            pyxel.dither(0.5)
-            pyxel.rect(0, 0, SCREEN_W, SCREEN_H, 0)
-            pyxel.dither(1.0)
-        except Exception:
-            pyxel.rect(0, 0, SCREEN_W, SCREEN_H, 0)
-
-        pyxel.rect(px, py, pw, ph, 0)
-        pyxel.rectb(px, py, pw, ph, 11)
-        pyxel.rectb(px + 2, py + 2, pw - 4, ph - 4, 3)
-
-        self.text(px + 37, py + 12, MSG_PAUSED, 7)
+        x, y, w, h = self.pause_panel_rect()
+        pyxel.rect(x, y, w, h, 0)
+        pyxel.rectb(x, y, w, h, 11)
+        pyxel.rect(x + 8, y + 8, w - 16, 18, 1)
+        self.draw_text_center(x, y + 13, w, MSG_PAUSED, 11)
 
         rx, ry, rw, rh = self.resume_button_rect()
         tx, ty, tw, th = self.retry_button_rect()
         nx, ny, nw, nh = self.new_button_rect()
 
-        pyxel.rect(rx, ry, rw, rh, 1)
-        pyxel.rectb(rx, ry, rw, rh, 11)
-        self.text(rx + 22, ry + 3, BTN_RESUME, 11)
-
-        pyxel.rect(tx, ty, tw, th, 1)
-        pyxel.rectb(tx, ty, tw, th, 3)
-        self.text(tx + 28, ty + 3, BTN_RETRY, 11)
-
-        pyxel.rect(nx, ny, nw, nh, 1)
-        pyxel.rectb(nx, ny, nw, nh, 11)
-        self.text(nx + 36, ny + 3, BTN_NEW, 11)
+        self.draw_menu_button(rx, ry, rw, rh, BTN_RESUME, 11)
+        self.draw_menu_button(tx, ty, tw, th, BTN_RETRY, 3)
+        self.draw_menu_button(nx, ny, nw, nh, BTN_NEW, 11)
 
     def draw_touch_ui(self):
         gx, gy, gw, gh = self.gear_rect()
         self.draw_gear_icon(gx, gy)
-
         if self.menu_open:
             self.draw_pause_panel()
 
@@ -948,5 +1031,16 @@ class App:
         self.draw_hud()
         self.draw_touch_ui()
 
+    def path_is_playable(self, points):
+        min_x = min(x for x, y in points)
+        max_x = max(x for x, y in points)
+        min_y = min(y for x, y in points)
+        max_y = max(y for x, y in points)
 
+        return (
+            min_x >= SAFE_MARGIN
+            and max_x <= SCREEN_W - SAFE_MARGIN
+            and min_y >= PLAY_TOP + SAFE_MARGIN
+            and max_y <= PLAY_BOTTOM - SAFE_MARGIN
+        )
 App()
