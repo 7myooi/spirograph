@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Spirograph Galaxy</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta
+      name="description"
+      content="Three.js で作った 3D スピログラフ作品。GUI で形状や発光を調整しながら、宇宙空間に浮かぶ軌跡を楽しめます。"
+    />
+    <meta name="theme-color" content="#050510" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #050510;
+        font-family: system-ui, sans-serif;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      .hud {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        padding: 10px 12px;
+        color: #d9e7ff;
+        background: rgba(10, 14, 28, 0.65);
+        border: 1px solid rgba(120, 160, 255, 0.2);
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.5;
+        backdrop-filter: blur(8px);
+      }
+
+      .hud b {
+        color: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hud">
+      <b>3D Spirograph</b><br />
+      ドラッグ: 回転<br />
+      ホイール: ズーム
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
