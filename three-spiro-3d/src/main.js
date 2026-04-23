@@ -21,7 +21,11 @@ import {
   randomCurveParams,
 } from "./curve-modes.js";
 import { createControlPanel } from "./gui.js";
-import { randomBloomSettings, tipDefaults, tubeDefaults } from "./spiro-data.js";
+import {
+  randomBloomSettings,
+  tipDefaults,
+  tubeDefaults,
+} from "./spiro-data.js";
 import { createToast } from "./toast.js";
 
 // シーン全体の土台を用意する。レンダラー、カメラ、Bloom、背景をここで初期化する。
@@ -31,6 +35,7 @@ scene.background = spaceBackground.backdropTexture;
 // Fog を入れておくと、背景とオブジェクトの奥行きが自然につながりやすい。
 scene.fog = new THREE.FogExp2(SCENE_FOG_COLOR, 0.008);
 
+// カメラの作成
 const camera = new THREE.PerspectiveCamera(
   // 視野角。大きいほど広く見えるが、広角っぽい見え方も強くなる。
   60,
@@ -44,6 +49,7 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 18, 70);
 scene.add(camera);
 
+// レンダラーの作成
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 // 高 DPI 端末でもきれいに見せつつ、重くなりすぎないよう上限を 2 にする。
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
