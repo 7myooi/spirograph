@@ -1,7 +1,18 @@
 import * as THREE from "three";
 
-const effectPalette = [0xf6fbff, 0xbce8ff, 0x68c9ff, 0x239bff];
-const duration = 0.82;
+const DEFAULT_SWEEP_PRESET = {
+  palette: [0xf6fbff, 0xbce8ff, 0x68c9ff, 0x239bff],
+  duration: 0.82,
+  resetCooldownMin: 3.2,
+  resetCooldownMax: 5.4,
+  triggerCooldownMin: 3.6,
+  triggerCooldownMax: 6.2,
+  visibility: 1,
+  coreScale: 1,
+  trailScale: 1,
+  ghostScale: 1,
+  opacity: 1,
+};
 
 function randomInRange(min, max) {
   return THREE.MathUtils.randFloat(min, max);
@@ -11,14 +22,12 @@ function randomInt(min, max) {
   return THREE.MathUtils.randInt(min, max);
 }
 
-// 重いジオメトリを使わず、やわらかいスプライトの重ね合わせで流星の筋を作る。
 function createRingTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 256;
 
   const context = canvas.getContext("2d");
-  // 中心だけ強く光る小さな円を描き、流星のヘッド光として使う。
   const glow = context.createRadialGradient(128, 128, 10, 128, 128, 128);
   glow.addColorStop(0, "rgba(255,255,255,1)");
   glow.addColorStop(0.22, "rgba(255,255,255,0.48)");
@@ -38,7 +47,6 @@ function createGlowTexture() {
   canvas.height = 256;
 
   const context = canvas.getContext("2d");
-  // 横長の発光帯を作って、進行方向に伸びるコアの光として使う。
   const glow = context.createLinearGradient(0, 128, 512, 128);
   glow.addColorStop(0, "rgba(255,255,255,0)");
   glow.addColorStop(0.16, "rgba(255,255,255,0.03)");
@@ -68,7 +76,6 @@ function createRibbonTexture() {
   canvas.height = 256;
 
   const context = canvas.getContext("2d");
-  // より細い帯を作って、尾の筋や補助線として重ねる。
   const band = context.createLinearGradient(0, 128, 512, 128);
   band.addColorStop(0, "rgba(255,255,255,0)");
   band.addColorStop(0.2, "rgba(255,255,255,0.02)");
@@ -94,15 +101,13 @@ function createRibbonTexture() {
   return texture;
 }
 
-// この演出は背景空間に置いて、遠くを流れる宇宙の筋として見せる。
 export function createCosmicSweep(parentGroup) {
   const group = new THREE.Group();
   parentGroup.add(group);
 
-  // ヘッド光、コア、尾、補助線を別スプライトで持つと、調整しやすい。
   const ringMaterial = new THREE.SpriteMaterial({
     map: createRingTexture(),
-    color: effectPalette[0],
+    color: DEFAULT_SWEEP_PRESET.palette[0],
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -114,7 +119,7 @@ export function createCosmicSweep(parentGroup) {
 
   const glowMaterial = new THREE.SpriteMaterial({
     map: createGlowTexture(),
-    color: effectPalette[1],
+    color: DEFAULT_SWEEP_PRESET.palette[1],
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -126,7 +131,7 @@ export function createCosmicSweep(parentGroup) {
 
   const trailMaterial = new THREE.SpriteMaterial({
     map: createRibbonTexture(),
-    color: effectPalette[2],
+    color: DEFAULT_SWEEP_PRESET.palette[2],
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -138,7 +143,7 @@ export function createCosmicSweep(parentGroup) {
 
   const ghostAMaterial = new THREE.SpriteMaterial({
     map: createRibbonTexture(),
-    color: effectPalette[1],
+    color: DEFAULT_SWEEP_PRESET.palette[1],
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -150,7 +155,7 @@ export function createCosmicSweep(parentGroup) {
 
   const ghostBMaterial = new THREE.SpriteMaterial({
     map: createRibbonTexture(),
-    color: effectPalette[3],
+    color: DEFAULT_SWEEP_PRESET.palette[3],
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -172,8 +177,9 @@ export function createCosmicSweep(parentGroup) {
     ghostOffset: 4.4,
   };
 
+  const styleState = { ...DEFAULT_SWEEP_PRESET };
   let life = 0;
-  let cooldown = 3.6;
+  let cooldown = styleState.triggerCooldownMin;
 
   function hideAll() {
     ring.visible = false;
@@ -183,23 +189,31 @@ export function createCosmicSweep(parentGroup) {
     ghostB.visible = false;
   }
 
+  function applyPreset(preset = DEFAULT_SWEEP_PRESET) {
+    Object.assign(styleState, DEFAULT_SWEEP_PRESET, preset);
+  }
+
   function reset() {
     life = 0;
-    // 連続しすぎないよう、次の発生までの待ち時間をランダムにする。
-    cooldown = randomInRange(3.2, 5.4);
+    cooldown = randomInRange(
+      styleState.resetCooldownMin,
+      styleState.resetCooldownMax,
+    );
     hideAll();
   }
 
-  // 背景の片側から反対側へ向かって、新しいストリークを発生させる。
   function trigger() {
-    life = duration;
-    cooldown = randomInRange(3.6, 6.2);
+    life = styleState.duration;
+    cooldown = randomInRange(
+      styleState.triggerCooldownMin,
+      styleState.triggerCooldownMax,
+    );
 
-    const sweepColor = effectPalette[randomInt(0, effectPalette.length - 1)];
+    const palette = styleState.palette;
+    const sweepColor = palette[randomInt(0, palette.length - 1)];
     const coreColor = 0xffffff;
     const direction = Math.random() > 0.5 ? 1 : -1;
 
-    // 画面の中心から少し外した位置を通すことで、主役のスピログラフを邪魔しにくくする。
     sweepState.startX =
       direction > 0 ? randomInRange(-330, -250) : randomInRange(250, 330);
     sweepState.endX =
@@ -214,10 +228,10 @@ export function createCosmicSweep(parentGroup) {
       sweepState.endY - sweepState.startY,
       sweepState.endX - sweepState.startX,
     );
-    // 長さや補助線の間隔も少し揺らして、毎回同じ見え方にならないようにする。
-    sweepState.coreLength = randomInRange(136, 196);
+    sweepState.coreLength =
+      randomInRange(136, 196) * styleState.coreScale;
     sweepState.trailLength =
-      sweepState.coreLength + randomInRange(72, 118);
+      (sweepState.coreLength + randomInRange(72, 118)) * styleState.trailScale;
     sweepState.ghostOffset = randomInRange(3.2, 5.6);
 
     group.position.set(sweepState.startX, sweepState.startY, sweepState.z);
@@ -226,23 +240,31 @@ export function createCosmicSweep(parentGroup) {
     ringMaterial.color.set(sweepColor);
     glowMaterial.color.set(coreColor);
     trailMaterial.color.set(sweepColor);
-    ghostAMaterial.color.set(effectPalette[1]);
-    ghostBMaterial.color.set(effectPalette[3]);
+    ghostAMaterial.color.set(palette[Math.min(1, palette.length - 1)]);
+    ghostBMaterial.color.set(palette[Math.min(3, palette.length - 1)]);
 
-    ring.scale.set(12, 12, 1);
-    glow.scale.set(sweepState.coreLength, 4.8, 1);
-    trail.scale.set(sweepState.trailLength, 2.1, 1);
-    ghostA.scale.set(sweepState.trailLength * 0.72, 1.15, 1);
-    ghostB.scale.set(sweepState.trailLength * 0.58, 0.95, 1);
+    ring.scale.set(12 * styleState.coreScale, 12 * styleState.coreScale, 1);
+    glow.scale.set(sweepState.coreLength, 4.8 * styleState.coreScale, 1);
+    trail.scale.set(sweepState.trailLength, 2.1 * styleState.trailScale, 1);
+    ghostA.scale.set(
+      sweepState.trailLength * 0.72,
+      1.15 * styleState.ghostScale,
+      1,
+    );
+    ghostB.scale.set(
+      sweepState.trailLength * 0.58,
+      0.95 * styleState.ghostScale,
+      1,
+    );
     trail.position.set(0, 0, 0);
     ghostA.position.set(0, -sweepState.ghostOffset, 0);
     ghostB.position.set(0, sweepState.ghostOffset, 0);
 
-    ring.material.opacity = 0.46;
-    glow.material.opacity = 0.2;
-    trail.material.opacity = 0.24;
-    ghostAMaterial.opacity = 0.1;
-    ghostBMaterial.opacity = 0.08;
+    ring.material.opacity = 0.46 * styleState.opacity;
+    glow.material.opacity = 0.2 * styleState.opacity;
+    trail.material.opacity = 0.24 * styleState.opacity;
+    ghostAMaterial.opacity = 0.1 * styleState.opacity;
+    ghostBMaterial.opacity = 0.08 * styleState.opacity;
     glowMaterial.rotation = 0;
     trailMaterial.rotation = 0;
     ghostAMaterial.rotation = 0;
@@ -255,7 +277,6 @@ export function createCosmicSweep(parentGroup) {
     ghostB.visible = true;
   }
 
-  // 時間に応じて伸びと透明度を変えて、速いけれど派手すぎない動きにする。
   function update(delta) {
     if (life <= 0) {
       cooldown -= delta;
@@ -269,18 +290,17 @@ export function createCosmicSweep(parentGroup) {
     }
 
     life = Math.max(0, life - delta);
-    const progress = 1 - life / duration;
-    // smootherstep で進行を少しなめらかにして、急発進感を弱める。
+    const progress = 1 - life / styleState.duration;
     const eased = THREE.MathUtils.smootherstep(progress, 0, 1);
-    // フェードは 0 → 1 → 0 の山を作りたいので sin を使う。
     const fade = Math.sin(progress * Math.PI);
-    // 中心を横切るときは visibility を下げて、主役にかぶりすぎないようにする。
     const centerProtection = THREE.MathUtils.smoothstep(
       Math.hypot(group.position.x * 0.34, group.position.y),
       10,
       70,
     );
-    const visibility = THREE.MathUtils.lerp(0.22, 0.9, centerProtection);
+    const visibility =
+      THREE.MathUtils.lerp(0.22, 0.9, centerProtection) *
+      styleState.visibility;
 
     group.position.x = THREE.MathUtils.lerp(
       sweepState.startX,
@@ -294,27 +314,48 @@ export function createCosmicSweep(parentGroup) {
     );
     group.position.z = sweepState.z;
 
-    ring.scale.set(13 + fade * 4.2, 13 + fade * 4.2, 1);
-    glow.scale.set(sweepState.coreLength + eased * 18, 4.8 + fade * 1.2, 1);
-    trail.scale.set(sweepState.trailLength + eased * 26, 2.1 + fade * 0.45, 1);
+    ring.scale.set(
+      (13 + fade * 4.2) * styleState.coreScale,
+      (13 + fade * 4.2) * styleState.coreScale,
+      1,
+    );
+    glow.scale.set(
+      sweepState.coreLength + eased * 18,
+      (4.8 + fade * 1.2) * styleState.coreScale,
+      1,
+    );
+    trail.scale.set(
+      sweepState.trailLength + eased * 26,
+      (2.1 + fade * 0.45) * styleState.trailScale,
+      1,
+    );
     ghostA.scale.set(
       sweepState.trailLength * 0.72 + eased * 18,
-      1.15 + fade * 0.24,
+      (1.15 + fade * 0.24) * styleState.ghostScale,
       1,
     );
     ghostB.scale.set(
       sweepState.trailLength * 0.58 + eased * 14,
-      0.95 + fade * 0.18,
+      (0.95 + fade * 0.18) * styleState.ghostScale,
       1,
     );
     ghostA.position.y = -sweepState.ghostOffset;
     ghostB.position.y = sweepState.ghostOffset;
 
-    ring.material.opacity = fade * 0.46 * visibility;
-    glow.material.opacity = fade * 0.2 * visibility;
-    trail.material.opacity = Math.pow(fade, 0.9) * 0.24 * visibility;
-    ghostAMaterial.opacity = Math.pow(fade, 1.05) * 0.1 * visibility;
-    ghostBMaterial.opacity = Math.pow(fade, 1.1) * 0.08 * visibility;
+    ring.material.opacity = Math.min(1, fade * 0.46 * visibility * styleState.opacity);
+    glow.material.opacity = Math.min(1, fade * 0.2 * visibility * styleState.opacity);
+    trail.material.opacity = Math.min(
+      1,
+      Math.pow(fade, 0.9) * 0.24 * visibility * styleState.opacity,
+    );
+    ghostAMaterial.opacity = Math.min(
+      1,
+      Math.pow(fade, 1.05) * 0.1 * visibility * styleState.opacity,
+    );
+    ghostBMaterial.opacity = Math.min(
+      1,
+      Math.pow(fade, 1.1) * 0.08 * visibility * styleState.opacity,
+    );
 
     if (life > 0) {
       return;
@@ -323,9 +364,11 @@ export function createCosmicSweep(parentGroup) {
     hideAll();
   }
 
+  applyPreset();
   reset();
 
   return {
+    applyPreset,
     reset,
     update,
   };

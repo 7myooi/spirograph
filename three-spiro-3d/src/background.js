@@ -2,98 +2,143 @@ import * as THREE from "three";
 
 export const SCENE_FOG_COLOR = 0x050811;
 
+const DEFAULT_BACKDROP_THEME = {
+  gradientStops: [
+    { offset: 0, color: "#02030d" },
+    { offset: 0.42, color: "#0d1f42" },
+    { offset: 0.78, color: "#081126" },
+    { offset: 1, color: "#01040c" },
+  ],
+  glowA: ["rgba(116, 184, 255, 0.58)", "rgba(46, 106, 255, 0.26)"],
+  glowB: ["rgba(80, 255, 236, 0.28)", "rgba(19, 122, 255, 0.2)"],
+  glowC: ["rgba(255, 94, 224, 0.28)", "rgba(130, 65, 255, 0.16)"],
+  auroraA: ["rgba(0, 255, 214, 0.12)", "rgba(80, 138, 255, 0.08)"],
+  auroraB: ["rgba(255, 101, 236, 0.12)", "rgba(94, 71, 255, 0.08)"],
+  sparkleColor: "rgba(255, 255, 255, 0.18)",
+  sparkleCount: 140,
+  sparkleOpacityMin: 0.04,
+  sparkleOpacityRange: 0.28,
+  vignetteMidAlpha: 0.14,
+  vignetteOuterAlpha: 0.44,
+};
+
+const DEFAULT_BACKGROUND_PRESET = {
+  starOpacity: 1,
+  nearStarOpacity: 1,
+  accentOpacity: 1,
+  dustOpacity: 1,
+  nebulaOpacity: 1,
+  motion: 1,
+  colors: {
+    farStars: 0xe2edff,
+    nearStars: 0x8fc5ff,
+    accentStars: 0xff93ec,
+    dustA: 0xffc2f3,
+    dustB: 0x9ffff0,
+    nebulaA: 0x2a74ff,
+    nebulaB: 0x11d5ff,
+    nebulaC: 0xff4fd8,
+    nebulaD: 0x7c5cff,
+    nebulaE: 0x26ffd9,
+  },
+  backdrop: DEFAULT_BACKDROP_THEME,
+};
+
 function randomInRange(min, max) {
   return THREE.MathUtils.randFloat(min, max);
 }
 
-// 星やネビュラの前段として使う、空全体のグラデーション背景を描く。
 function createBackdropTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
   canvas.height = 1024;
 
-  const context = canvas.getContext("2d");
-  // まずは夜空のベース色。上から下に向けて少しだけ色を変えて奥行きを出す。
-  const baseGradient = context.createLinearGradient(0, 0, 0, 1024);
-  baseGradient.addColorStop(0, "#02030d");
-  baseGradient.addColorStop(0.42, "#0d1f42");
-  baseGradient.addColorStop(0.78, "#081126");
-  baseGradient.addColorStop(1, "#01040c");
-  context.fillStyle = baseGradient;
-  context.fillRect(0, 0, 1024, 1024);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
 
-  // ここから先は screen 合成にして、光を重ねる感覚で色を足していく。
+  return {
+    canvas,
+    context: canvas.getContext("2d"),
+    texture,
+  };
+}
+
+function drawBackdrop(backdropState, theme) {
+  const { canvas, context, texture } = backdropState;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  const baseGradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  theme.gradientStops.forEach((stop) => {
+    baseGradient.addColorStop(stop.offset, stop.color);
+  });
+  context.fillStyle = baseGradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
   context.globalCompositeOperation = "screen";
 
-  // 大きな光の塊をいくつか置いて、宇宙雲の下地を作る。
   const glowA = context.createRadialGradient(220, 180, 16, 220, 180, 360);
-  glowA.addColorStop(0, "rgba(116, 184, 255, 0.58)");
-  glowA.addColorStop(0.5, "rgba(46, 106, 255, 0.26)");
+  glowA.addColorStop(0, theme.glowA[0]);
+  glowA.addColorStop(0.5, theme.glowA[1]);
   glowA.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = glowA;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
   const glowB = context.createRadialGradient(810, 680, 14, 810, 680, 340);
-  glowB.addColorStop(0, "rgba(80, 255, 236, 0.28)");
-  glowB.addColorStop(0.45, "rgba(19, 122, 255, 0.2)");
+  glowB.addColorStop(0, theme.glowB[0]);
+  glowB.addColorStop(0.45, theme.glowB[1]);
   glowB.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = glowB;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
   const glowC = context.createRadialGradient(720, 220, 10, 720, 220, 280);
-  glowC.addColorStop(0, "rgba(255, 94, 224, 0.28)");
-  glowC.addColorStop(0.5, "rgba(130, 65, 255, 0.16)");
+  glowC.addColorStop(0, theme.glowC[0]);
+  glowC.addColorStop(0.5, theme.glowC[1]);
   glowC.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = glowC;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 線形グラデーションで、オーロラのような筋をうっすら重ねる。
   const auroraA = context.createLinearGradient(120, 80, 640, 660);
-  auroraA.addColorStop(0, "rgba(0, 255, 214, 0.12)");
-  auroraA.addColorStop(0.4, "rgba(80, 138, 255, 0.08)");
+  auroraA.addColorStop(0, theme.auroraA[0]);
+  auroraA.addColorStop(0.4, theme.auroraA[1]);
   auroraA.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = auroraA;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
   const auroraB = context.createLinearGradient(860, 40, 420, 860);
-  auroraB.addColorStop(0, "rgba(255, 101, 236, 0.12)");
-  auroraB.addColorStop(0.55, "rgba(94, 71, 255, 0.08)");
+  auroraB.addColorStop(0, theme.auroraB[0]);
+  auroraB.addColorStop(0.55, theme.auroraB[1]);
   auroraB.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = auroraB;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
-  context.fillStyle = "rgba(255, 255, 255, 0.18)";
-  for (let index = 0; index < 140; index += 1) {
-    // 小さな輝点をランダムに散らして、背景テクスチャ自体にも粒感を入れる。
-    const x = Math.random() * 1024;
-    const y = Math.random() * 1024;
+  context.fillStyle = theme.sparkleColor;
+  for (let index = 0; index < theme.sparkleCount; index += 1) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
     const size = Math.random() * 2.4 + 0.3;
-    context.globalAlpha = Math.random() * 0.28 + 0.04;
+    context.globalAlpha =
+      Math.random() * theme.sparkleOpacityRange + theme.sparkleOpacityMin;
     context.fillRect(x, y, size, size);
   }
   context.globalAlpha = 1;
 
   const vignette = context.createRadialGradient(512, 512, 180, 512, 512, 620);
   vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
-  vignette.addColorStop(0.72, "rgba(0, 0, 0, 0.14)");
-  vignette.addColorStop(1, "rgba(0, 0, 0, 0.44)");
+  vignette.addColorStop(0.72, `rgba(0, 0, 0, ${theme.vignetteMidAlpha})`);
+  vignette.addColorStop(1, `rgba(0, 0, 0, ${theme.vignetteOuterAlpha})`);
   context.globalCompositeOperation = "source-over";
   context.fillStyle = vignette;
-  context.fillRect(0, 0, 1024, 1024);
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  texture.needsUpdate = true;
 }
 
-// 星レイヤーは、奥行きと濃さを変えた point cloud として作る。
 function createStarField(count, spreadX, spreadY, depth, color, size, opacity) {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(count * 3);
 
   for (let index = 0; index < count; index += 1) {
     const offset = index * 3;
-    // Z をマイナス側へ散らして、カメラの奥に星が広がるように置く。
     positions[offset] = randomInRange(-spreadX, spreadX);
     positions[offset + 1] = randomInRange(-spreadY, spreadY);
     positions[offset + 2] = randomInRange(-depth, -depth * 0.35);
@@ -114,7 +159,6 @@ function createStarField(count, spreadX, spreadY, depth, color, size, opacity) {
   return new THREE.Points(geometry, material);
 }
 
-// ネビュラは同じぼかしテクスチャを使い回し、色・大きさ・位置だけを変える。
 function createNebulaTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -151,13 +195,11 @@ function createNebulaSprite(texture, color, opacity, position, scale, rotation) 
   return sprite;
 }
 
-// 背景全体をひとつのオブジェクトとして返して、main.js 側ではまとめて扱えるようにする。
 export function createSpaceBackground() {
   const group = new THREE.Group();
-  const backdropTexture = createBackdropTexture();
+  const backdropState = createBackdropTexture();
   const nebulaTexture = createNebulaTexture();
 
-  // 遠景 / 中景 / アクセント / 夢っぽい粉 で役割を分けてレイヤーを作る。
   const farStars = createStarField(1800, 460, 170, 400, 0xe2edff, 1.05, 0.7);
   const nearStars = createStarField(620, 340, 110, 280, 0x8fc5ff, 2.2, 0.56);
   const accentStars = createStarField(180, 300, 120, 260, 0xff93ec, 2.8, 0.22);
@@ -215,15 +257,147 @@ export function createSpaceBackground() {
   group.add(nebulaD);
   group.add(nebulaE);
 
+  const starLayers = {
+    far: { points: farStars, baseOpacity: 0.7, colorKey: "farStars" },
+    near: { points: nearStars, baseOpacity: 0.56, colorKey: "nearStars" },
+    accent: {
+      points: accentStars,
+      baseOpacity: 0.22,
+      colorKey: "accentStars",
+    },
+    dustA: { points: dreamDustA, baseOpacity: 0.12, colorKey: "dustA" },
+    dustB: { points: dreamDustB, baseOpacity: 0.11, colorKey: "dustB" },
+  };
+
+  const nebulaLayers = [
+    {
+      sprite: nebulaA,
+      baseOpacity: 0.2,
+      pulseAmplitude: 0.03,
+      pulseSpeed: 1.3,
+      axis: "y",
+      basePosition: new THREE.Vector3(-110, 72, -220),
+      driftAmplitude: 6,
+      driftSpeed: 1.1,
+      driftPhase: "sin",
+      rotationSpeed: 0.00024,
+      colorKey: "nebulaA",
+    },
+    {
+      sprite: nebulaB,
+      baseOpacity: 0.16,
+      pulseAmplitude: 0.025,
+      pulseSpeed: 1.1,
+      axis: "x",
+      basePosition: new THREE.Vector3(124, -22, -250),
+      driftAmplitude: 9,
+      driftSpeed: 0.85,
+      driftPhase: "cos",
+      rotationSpeed: -0.00016,
+      colorKey: "nebulaB",
+    },
+    {
+      sprite: nebulaC,
+      baseOpacity: 0.12,
+      pulseAmplitude: 0.022,
+      pulseSpeed: 0.95,
+      axis: "y",
+      basePosition: new THREE.Vector3(18, 118, -310),
+      driftAmplitude: 5,
+      driftSpeed: 0.7,
+      driftPhase: "sin",
+      rotationSpeed: 0.00011,
+      colorKey: "nebulaC",
+    },
+    {
+      sprite: nebulaD,
+      baseOpacity: 0.1,
+      pulseAmplitude: 0.02,
+      pulseSpeed: 0.8,
+      axis: "x",
+      basePosition: new THREE.Vector3(-10, -108, -280),
+      driftAmplitude: 8,
+      driftSpeed: 0.62,
+      driftPhase: "sin",
+      rotationSpeed: -0.00014,
+      colorKey: "nebulaD",
+    },
+    {
+      sprite: nebulaE,
+      baseOpacity: 0.08,
+      pulseAmplitude: 0.018,
+      pulseSpeed: 1.45,
+      axis: "y",
+      basePosition: new THREE.Vector3(166, 82, -340),
+      driftAmplitude: 7,
+      driftSpeed: 0.92,
+      driftPhase: "cos",
+      rotationSpeed: 0.00009,
+      colorKey: "nebulaE",
+    },
+  ];
+
+  const dustPulseLayers = [
+    {
+      points: dreamDustA,
+      baseOpacity: 0.08,
+      pulseAmplitude: 0.035,
+      pulseSpeed: 1.6,
+      phase: "sin",
+    },
+    {
+      points: dreamDustB,
+      baseOpacity: 0.07,
+      pulseAmplitude: 0.03,
+      pulseSpeed: 1.3,
+      phase: "cos",
+    },
+  ];
+
+  const presetState = {
+    ...DEFAULT_BACKGROUND_PRESET,
+    colors: { ...DEFAULT_BACKGROUND_PRESET.colors },
+    backdrop: { ...DEFAULT_BACKDROP_THEME },
+  };
   let time = 0;
 
-  // 背景は主役を邪魔しないよう、ゆっくり漂う程度の動きに抑える。
+  function applyPreset(preset = DEFAULT_BACKGROUND_PRESET) {
+    const colors = {
+      ...DEFAULT_BACKGROUND_PRESET.colors,
+      ...(preset.colors ?? {}),
+    };
+    const backdropTheme = {
+      ...DEFAULT_BACKDROP_THEME,
+      ...(preset.backdrop ?? {}),
+    };
+
+    Object.assign(presetState, DEFAULT_BACKGROUND_PRESET, preset, {
+      colors,
+      backdrop: backdropTheme,
+    });
+
+    starLayers.far.points.material.opacity =
+      starLayers.far.baseOpacity * presetState.starOpacity;
+    starLayers.near.points.material.opacity =
+      starLayers.near.baseOpacity * presetState.nearStarOpacity;
+    starLayers.accent.points.material.opacity =
+      starLayers.accent.baseOpacity * presetState.accentOpacity;
+
+    Object.values(starLayers).forEach((layer) => {
+      layer.points.material.color.set(colors[layer.colorKey]);
+    });
+
+    nebulaLayers.forEach((layer) => {
+      layer.sprite.material.color.set(colors[layer.colorKey]);
+    });
+
+    drawBackdrop(backdropState, backdropTheme);
+  }
+
   function update(delta) {
-    // だいたい 60fps 基準になるよう、delta を係数へ変換して使う。
-    const frame = delta * 60;
+    const frame = delta * 60 * presetState.motion;
     time += 0.0024 * frame;
 
-    // 星レイヤーは回転だけで十分に奥行き感が出る。
     farStars.rotation.y += 0.00012 * frame;
     farStars.rotation.x -= 0.00003 * frame;
     nearStars.rotation.y -= 0.0002 * frame;
@@ -235,31 +409,37 @@ export function createSpaceBackground() {
     dreamDustB.rotation.y += 0.00014 * frame;
     dreamDustB.rotation.x += 0.00004 * frame;
 
-    // ネビュラは角度・位置・透明度を少しずつ揺らして、静止画感を消す。
-    nebulaA.material.rotation += 0.00024 * frame;
-    nebulaB.material.rotation -= 0.00016 * frame;
-    nebulaC.material.rotation += 0.00011 * frame;
-    nebulaD.material.rotation -= 0.00014 * frame;
-    nebulaE.material.rotation += 0.00009 * frame;
+    dustPulseLayers.forEach((layer) => {
+      const wave =
+        layer.phase === "sin"
+          ? Math.sin(time * layer.pulseSpeed)
+          : Math.cos(time * layer.pulseSpeed);
+      layer.points.material.opacity =
+        (layer.baseOpacity + (wave + 1) * layer.pulseAmplitude) *
+        presetState.dustOpacity;
+    });
 
-    nebulaA.position.y = 72 + Math.sin(time * 1.1) * 6;
-    nebulaB.position.x = 124 + Math.cos(time * 0.85) * 9;
-    nebulaC.position.y = 118 + Math.sin(time * 0.7) * 5;
-    nebulaD.position.x = -10 + Math.sin(time * 0.62) * 8;
-    nebulaE.position.y = 82 + Math.cos(time * 0.92) * 7;
-
-    nebulaA.material.opacity = 0.2 + (Math.sin(time * 1.3) + 1) * 0.03;
-    nebulaB.material.opacity = 0.16 + (Math.cos(time * 1.1) + 1) * 0.025;
-    nebulaC.material.opacity = 0.12 + (Math.sin(time * 0.95) + 1) * 0.022;
-    nebulaD.material.opacity = 0.1 + (Math.cos(time * 0.8) + 1) * 0.02;
-    nebulaE.material.opacity = 0.08 + (Math.sin(time * 1.45) + 1) * 0.018;
-    dreamDustA.material.opacity = 0.08 + (Math.sin(time * 1.6) + 1) * 0.035;
-    dreamDustB.material.opacity = 0.07 + (Math.cos(time * 1.3) + 1) * 0.03;
+    nebulaLayers.forEach((layer) => {
+      layer.sprite.material.rotation += layer.rotationSpeed * frame;
+      const wave =
+        layer.driftPhase === "sin"
+          ? Math.sin(time * layer.driftSpeed)
+          : Math.cos(time * layer.driftSpeed);
+      layer.sprite.position.copy(layer.basePosition);
+      layer.sprite.position[layer.axis] += wave * layer.driftAmplitude;
+      layer.sprite.material.opacity =
+        (layer.baseOpacity +
+          (Math.sin(time * layer.pulseSpeed) + 1) * layer.pulseAmplitude) *
+        presetState.nebulaOpacity;
+    });
   }
 
+  applyPreset();
+
   return {
-    backdropTexture,
+    backdropTexture: backdropState.texture,
     group,
     update,
+    applyPreset,
   };
 }

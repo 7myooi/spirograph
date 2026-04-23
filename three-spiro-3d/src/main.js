@@ -1,18 +1,27 @@
-import * as THREE from "three";
+﻿import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import GUI from "lil-gui";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import {
+  buildShareUrl,
+  buildSerializableState,
+  createGuiState,
+  loadPresetFromStorage,
+  readSharedStateFromHash,
+  savePresetToStorage,
+} from "./app-state.js";
+import { createAmbientAudioController } from "./audio.js";
+import { getAmbientPresetDefinition } from "./ambient-presets.js";
 import { createSpaceBackground, SCENE_FOG_COLOR } from "./background.js";
 import { createCosmicSweep } from "./cosmic-sweep.js";
 import {
-  buildSpiroPoints,
-  randomBloomSettings,
-  randomSpiroParams,
-  tipDefaults,
-  tubeDefaults,
-} from "./spiro-data.js";
+  buildCurvePoints,
+  pickCurveParams,
+  randomCurveParams,
+} from "./curve-modes.js";
+import { createControlPanel } from "./gui.js";
+import { randomBloomSettings, tipDefaults, tubeDefaults } from "./spiro-data.js";
 import { createToast } from "./toast.js";
 
 // シーン全体の土台を用意する。レンダラー、カメラ、Bloom、背景をここで初期化する。
@@ -56,6 +65,11 @@ const bloomPass = new UnrealBloomPass(
 composer.addPass(bloomPass);
 
 const showToast = createToast();
+const ambientAudio = createAmbientAudioController({
+  onStarted: () => {
+    showToast("BGM started");
+  },
+});
 
 const ambientLight = new THREE.HemisphereLight(0xaec5ff, 0x05060a, 1.2);
 scene.add(ambientLight);
@@ -174,6 +188,7 @@ let randomizeTimeoutId = null;
 // GUI へ値を戻すときに onChange を暴発させないためのロック。
 let guiSyncLocked = false;
 let tubeGeometry = null;
+let focusModeSnapshot = null;
 const effectClock = new THREE.Clock();
 
 // 点列が変わったときやチューブ半径が変わったときに、立体の軌跡を作り直す。
@@ -262,154 +277,171 @@ function updateTubeDrawRange() {
   tubeGeometry.setDrawRange(0, visibleVertices);
 }
 
-let activeParams = randomSpiroParams();
-const PRESET_STORAGE_KEY = "three-spiro-3d-preset";
-const SHARE_STATE_KEYS = [
-  "R",
-  "r",
-  "d",
-  "turns",
-  "step",
-  "zAmp",
-  "zFreq",
-  "spinX",
-  "spinY",
-  "drawSpeed",
-  "autoRandomize",
-  "randomizeBloom",
-  "randomizeEveryMs",
-  "bloomStrength",
-  "bloomRadius",
-  "bloomThreshold",
-  "tipColorMode",
-  "headSize",
-  "glowSize",
-  "haloSize",
-  "headColor",
-  "glowColor",
-  "haloColor",
-  "pulseSpeed",
-  "pulseAmount",
-  "tubeRadius",
-  "tubeEmissiveIntensity",
-  "tubeColorMode",
-  "tubeColor",
-];
+let activeParams = randomCurveParams();
 
-// GUI の値をひとつに集約して、操作・プリセット・再描画の基準にする。
-const guiState = {
-  ...activeParams,
-  autoRandomize: true,
-  randomizeBloom: false,
-  randomizeEveryMs: 9000,
-  bloomStrength: 1.2,
-  bloomRadius: 0.8,
-  bloomThreshold: 0.15,
-  tipColorMode: "rainbow",
-  headSize: tipDefaults.headSize,
-  glowSize: tipDefaults.glowSize,
-  haloSize: tipDefaults.haloSize,
-  headColor: tipDefaults.headColor,
-  glowColor: tipDefaults.glowColor,
-  haloColor: tipDefaults.haloColor,
-  pulseSpeed: 0.08,
-  pulseAmount: 0.18,
-  tubeRadius: 0.2,
-  tubeEmissiveIntensity: 0.95,
-  tubeColorMode: tubeDefaults.colorMode,
-  tubeColor: tubeDefaults.color,
+// GUI の値をひとつに集約して、操作・共有・プリセット保存の基準にする。
+const guiState = createGuiState({
+  activeParams,
+  tipDefaults,
+  tubeDefaults,
+  actions: {
+    randomizeNow: () => {
+      regenerateSpiro(true);
+      showToast("Randomized");
+    },
+    redraw: () => {
+      syncParamsFromGui();
+      applyTubeAppearance(false);
+      rebuildFromActiveParams();
+      applyBloomSettings();
+      applyTipAppearance();
+      scheduleRandomize();
+      showToast("Redrawn");
+    },
+    copyShareUrl: () => {
+      const shareUrl = buildShareUrl(guiState, window.location.href);
+      window.history.replaceState(null, "", shareUrl);
 
-  // 「今すぐランダム」は手動で新しい形を引き直すためのボタン。
-  randomizeNow: () => {
-    regenerateSpiro(true);
-    showToast("Randomized");
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard
+          .writeText(shareUrl)
+          .then(() => {
+            showToast("Share URL copied");
+          })
+          .catch(() => {
+            showToast("Share URL updated");
+          });
+        return;
+      }
+
+      showToast("Share URL updated");
+    },
+    savePreset: () => {
+      savePresetToStorage(guiState);
+      showToast("Preset saved");
+    },
+    loadPreset: () => {
+      const preset = loadPresetFromStorage();
+      if (!preset) {
+        showToast("No preset found");
+        return;
+      }
+
+      applySerializableState(preset);
+      showToast("Preset loaded");
+    },
   },
-  // redraw は現在の GUI 値でもう一度作り直したいときに使う。
-  redraw: () => {
-    syncParamsFromGui();
-    applyTubeAppearance(false);
-    rebuildFromActiveParams();
-    applyBloomSettings();
-    applyTipAppearance();
-    scheduleRandomize();
-    showToast("Redrawn");
-  },
-  // いまの見た目を URL に埋め込んで、別の人へそのまま送れるようにする。
-  copyShareUrl: () => {
-    const shareUrl = buildShareUrl();
-    window.history.replaceState(null, "", shareUrl);
+});
 
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(shareUrl)
-        .then(() => {
-          showToast("Share URL copied");
-        })
-        .catch(() => {
-          showToast("Share URL updated");
-        });
-      return;
-    }
-
-    showToast("Share URL updated");
-  },
-  savePreset: () => {
-    localStorage.setItem(
-      PRESET_STORAGE_KEY,
-      JSON.stringify(buildSerializableState()),
-    );
-    showToast("Preset saved");
-  },
-  loadPreset: () => {
-    // localStorage から文字列で取り出して、JSON として元のオブジェクトへ戻す。
-    const saved = localStorage.getItem(PRESET_STORAGE_KEY);
-    if (!saved) {
-      showToast("No preset found");
-      return;
-    }
-
-    const preset = JSON.parse(saved);
-    applySerializableState(preset);
-    showToast("Preset loaded");
-  },
-};
-
-function buildSerializableState() {
-  return Object.fromEntries(
-    SHARE_STATE_KEYS.map((key) => [key, guiState[key]]),
-  );
-}
-
-function encodeShareState(state) {
-  return btoa(JSON.stringify(state))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
-}
-
-function decodeShareState(token) {
-  const normalized = token.replace(/-/g, "+").replace(/_/g, "/");
-  const padding =
-    normalized.length % 4 === 0
-      ? ""
-      : "=".repeat(4 - (normalized.length % 4));
-
-  return JSON.parse(atob(normalized + padding));
-}
-
-function buildShareUrl() {
-  const url = new URL(window.location.href);
-  const hashParams = new URLSearchParams(url.hash.replace(/^#/u, ""));
-  hashParams.set("state", encodeShareState(buildSerializableState()));
-  url.hash = hashParams.toString();
-  return url.toString();
-}
-
-// Bloom は composer 側で処理するので、GUI の値を pass に反映する。
 function applyBloomSettings() {
   bloomPass.strength = guiState.bloomStrength;
   bloomPass.radius = guiState.bloomRadius;
   bloomPass.threshold = guiState.bloomThreshold;
+}
+
+async function applyAudioSettings(showStatusToast = false) {
+  const ambientPreset = guiState.focusModeEnabled
+    ? getSelectedAmbientPreset()
+    : null;
+  const audioStatus = await ambientAudio.syncState({
+    enabled: guiState.bgmEnabled,
+    volume: guiState.bgmVolume,
+    profile: ambientPreset?.audioProfile,
+    paths: ambientPreset?.audioPaths,
+  });
+
+  if (!showStatusToast) {
+    return audioStatus;
+  }
+
+  if (!audioStatus.available) {
+    showToast("Audio unavailable");
+    return audioStatus;
+  }
+
+  if (audioStatus.missingFile) {
+    showToast("BGM file not found");
+    return audioStatus;
+  }
+
+  if (!guiState.bgmEnabled) {
+    showToast("BGM off");
+    return audioStatus;
+  }
+
+  if (audioStatus.awaitingGesture) {
+    showToast("Click to start BGM");
+    return audioStatus;
+  }
+
+  showToast("BGM on");
+  return audioStatus;
+}
+
+function applyFocusModePresentation() {
+  controlPanel.syncVisibility();
+  controlPanel.refreshDisplay();
+  controlPanel.setFocusMode(guiState.focusModeEnabled);
+}
+
+function getSelectedAmbientPreset() {
+  return getAmbientPresetDefinition(guiState.ambientPreset);
+}
+
+function applyAmbientPresetVisuals() {
+  if (guiState.focusModeEnabled) {
+    const preset = getSelectedAmbientPreset();
+    scene.fog.color.setHex(preset.visuals?.fogColor ?? SCENE_FOG_COLOR);
+    spaceBackground.applyPreset(preset.visuals?.background);
+    cosmicSweep.applyPreset(preset.visuals?.sweep);
+    cosmicSweep.reset();
+    return;
+  }
+
+  scene.fog.color.setHex(SCENE_FOG_COLOR);
+  spaceBackground.applyPreset();
+  cosmicSweep.applyPreset();
+  cosmicSweep.reset();
+}
+
+function applySelectedAmbientPreset() {
+  const preset = getSelectedAmbientPreset();
+  Object.assign(guiState, preset.overrides);
+  return preset;
+}
+
+function setFocusModeEnabled(nextEnabled, showStatusToast = true) {
+  if (nextEnabled) {
+    if (focusModeSnapshot === null) {
+      focusModeSnapshot = buildSerializableState(guiState);
+    }
+
+    guiState.focusModeEnabled = true;
+    applySelectedAmbientPreset();
+  } else {
+    const selectedAmbientPreset = guiState.ambientPreset;
+
+    if (focusModeSnapshot !== null) {
+      Object.assign(guiState, focusModeSnapshot);
+    }
+
+    focusModeSnapshot = null;
+    guiState.ambientPreset = selectedAmbientPreset;
+    guiState.focusModeEnabled = false;
+  }
+
+  syncParamsFromGui();
+  applyBloomSettings();
+  void applyAudioSettings(false);
+  applyTipAppearance();
+  applyTubeAppearance(false);
+  applyAmbientPresetVisuals();
+  applyFocusModePresentation();
+  scheduleRandomize();
+
+  if (showStatusToast) {
+    showToast(nextEnabled ? "Focus mode on" : "Focus mode off");
+  }
 }
 
 // 先端の色は、軌跡に合わせた虹色か、GUI で決めた固定色かを切り替えられる。
@@ -468,6 +500,7 @@ function applyTubeAppearance(rebuildGeometry = true) {
 }
 
 applyBloomSettings();
+void applyAudioSettings();
 applyTipAppearance();
 applyTubeAppearance(false);
 cosmicSweep.reset();
@@ -480,48 +513,35 @@ function syncGuiFromParams() {
 }
 
 function syncParamsFromGui() {
-  // shape / motion 系の値だけを、実際に描画へ使う activeParams に移す。
+  // 曲線モードに関わるキーは定義ファイルからまとめて拾う。
   activeParams = {
     ...activeParams,
-    R: guiState.R,
-    r: guiState.r,
-    d: guiState.d,
-    turns: guiState.turns,
-    step: guiState.step,
-    zAmp: guiState.zAmp,
-    zFreq: guiState.zFreq,
-    spinX: guiState.spinX,
-    spinY: guiState.spinY,
-    drawSpeed: guiState.drawSpeed,
+    ...pickCurveParams(guiState),
   };
 }
 
 function applySerializableState(nextState) {
+  focusModeSnapshot = null;
   Object.assign(guiState, nextState);
+  guiState.focusModeEnabled = false;
   syncParamsFromGui();
   applyBloomSettings();
+  void applyAudioSettings();
   applyTipAppearance();
   applyTubeAppearance(false);
+  applyAmbientPresetVisuals();
   rebuildFromActiveParams();
-  syncGuiVisibility();
-  gui
-    .controllersRecursive()
-    .forEach((controller) => controller.updateDisplay());
+  applyFocusModePresentation();
   scheduleRandomize();
 }
 
 function loadSharedStateFromUrl() {
-  const hashParams = new URLSearchParams(
-    window.location.hash.replace(/^#/u, ""),
-  );
-  const stateToken = hashParams.get("state");
-
-  if (!stateToken) {
-    return false;
-  }
-
   try {
-    const sharedState = decodeShareState(stateToken);
+    const sharedState = readSharedStateFromHash(window.location.hash);
+    if (!sharedState) {
+      return false;
+    }
+
     applySerializableState(sharedState);
     showToast("Shared setup loaded");
     return true;
@@ -531,7 +551,6 @@ function loadSharedStateFromUrl() {
   }
 }
 
-// 新しく作った点列を、ライン表示とチューブ表示の両方へ流し込む。
 function applySpiro(pointsData, colorsData) {
   points = pointsData;
   drawCount = 0;
@@ -565,7 +584,7 @@ function applySpiro(pointsData, colorsData) {
 
 // 形状パラメータが変わったら、軌跡全体を作り直す。
 function rebuildFromActiveParams() {
-  const { nextPoints, nextColors } = buildSpiroPoints(activeParams);
+  const { nextPoints, nextColors } = buildCurvePoints(activeParams);
   applySpiro(nextPoints, nextColors);
 }
 
@@ -588,15 +607,18 @@ function scheduleRandomize() {
 // ランダム再生成時は必要に応じて Bloom も変えて、その結果を GUI 表示へ戻す。
 function regenerateSpiro(useRandomParams = false) {
   if (useRandomParams) {
-    activeParams = randomSpiroParams();
+    activeParams = randomCurveParams(guiState.curveMode);
 
     if (guiState.randomizeBloom) {
       Object.assign(guiState, randomBloomSettings());
     }
 
-    // ランダムで決まった値を GUI に反映して、見た目と表示を一致させる。
     syncGuiFromParams();
-    guiControllers.forEach((controller) => controller.updateDisplay());
+    if (guiState.focusModeEnabled) {
+      applySelectedAmbientPreset();
+    }
+
+    controlPanel.refreshDisplay();
   } else {
     syncParamsFromGui();
   }
@@ -604,362 +626,63 @@ function regenerateSpiro(useRandomParams = false) {
   applyTubeAppearance(false);
   rebuildFromActiveParams();
   applyBloomSettings();
+  void applyAudioSettings(false);
   applyTipAppearance();
+  controlPanel.setFocusMode(guiState.focusModeEnabled);
   scheduleRandomize();
 }
 
-const gui = new GUI({ title: "Spiro Controls" });
-const guiControllers = [];
+const controlPanel = createControlPanel({
+  guiState,
+  isGuiSyncLocked: () => guiSyncLocked,
+  onFocusModeToggle: () => {
+    setFocusModeEnabled(guiState.focusModeEnabled, true);
+  },
+  onAmbientPresetChange: () => {
+    const preset = getSelectedAmbientPreset();
 
-// プリセット読込時にまとめて表示更新できるよう、コントローラーを一覧で持っておく。
-function registerGuiController(controller) {
-  guiControllers.push(controller);
-  return controller;
-}
-
-function addSpiroControl(folder, prop, min, max, step, name) {
-  const controller = registerGuiController(
-    folder.add(guiState, prop, min, max, step).name(name),
-  );
-
-  controller.onFinishChange(() => {
-    if (guiSyncLocked) {
-      return;
+    if (guiState.focusModeEnabled) {
+      applySelectedAmbientPreset();
+      syncParamsFromGui();
+      applyBloomSettings();
+      void applyAudioSettings(false);
+      applyTipAppearance();
+      applyTubeAppearance(false);
+      applyAmbientPresetVisuals();
+      rebuildFromActiveParams();
+      applyFocusModePresentation();
+      scheduleRandomize();
     }
 
-    // 軌跡の形に関わる値は、操作が終わったタイミングで再構築する。
+    showToast(`Ambient preset: ${preset.label}`);
+  },
+  onShapeControlFinish: () => {
     syncParamsFromGui();
     rebuildFromActiveParams();
     scheduleRandomize();
-  });
-
-  return controller;
-}
-
-function addBloomControl(folder, prop, min, max, step, name) {
-  const controller = registerGuiController(
-    folder.add(guiState, prop, min, max, step).name(name),
-  );
-
-  controller.onChange(() => {
-    // Bloom は見ながら調整したいので、ドラッグ中も即反映する。
+  },
+  onBloomChange: () => {
     applyBloomSettings();
-  });
-
-  return controller;
-}
-
-function addTipNumberControl(folder, prop, min, max, step, name) {
-  const controller = registerGuiController(
-    folder.add(guiState, prop, min, max, step).name(name),
-  );
-
-  controller.onChange(() => {
-    // 先端サイズは geometry を組み直さず、その場で scale だけ変える。
+  },
+  onTipAppearanceChange: () => {
     applyTipAppearance();
-  });
-
-  return controller;
-}
-
-function addTipColorControl(folder, prop, name) {
-  const controller = registerGuiController(
-    folder.addColor(guiState, prop).name(name),
-  );
-
-  controller.onChange(() => {
-    // 色は材質にそのまま流し込めるので、こちらも即時反映で十分。
-    applyTipAppearance();
-  });
-
-  return controller;
-}
-
-function addLiveNumberControl(folder, prop, min, max, step, name, onChange) {
-  const controller = registerGuiController(
-    folder.add(guiState, prop, min, max, step).name(name),
-  );
-
-  controller.onChange(() => {
-    onChange();
-  });
-
-  return controller;
-}
-
-function addLiveColorControl(folder, prop, name, onChange) {
-  const controller = registerGuiController(
-    folder.addColor(guiState, prop).name(name),
-  );
-
-  controller.onChange(() => {
-    onChange();
-  });
-
-  return controller;
-}
-
-function setControllerVisible(controller, isVisible) {
-  if (isVisible) {
-    if (typeof controller.show === "function") {
-      controller.show();
-      return;
-    }
-
-    controller.domElement.style.display = "";
-    return;
-  }
-
-  if (typeof controller.hide === "function") {
-    controller.hide();
-    return;
-  }
-
-  controller.domElement.style.display = "none";
-}
-
-// 手動色モードのときだけカラーピッカーを見せて、GUI の情報量を抑える。
-function syncGuiVisibility() {
-  const tipUsesManualColor = guiState.tipColorMode === "manual";
-  tipManualColorControllers.forEach((controller) => {
-    setControllerVisible(controller, tipUsesManualColor);
-  });
-
-  const tubeUsesManualColor = guiState.tubeColorMode === "manual";
-  tubeManualColorControllers.forEach((controller) => {
-    setControllerVisible(controller, tubeUsesManualColor);
-  });
-}
-
-const shapeFolder = gui.addFolder("Shape：形状");
-const shapeCurveFolder = shapeFolder.addFolder("Curve：軌跡");
-const shapeTubeFolder = shapeFolder.addFolder("Tube：本体");
-const motionFolder = gui.addFolder("Motion：動き");
-const tipFolder = gui.addFolder("Tip：先端発光");
-const tipSizeFolder = tipFolder.addFolder("Size：サイズ");
-const tipPulseFolder = tipFolder.addFolder("Pulse：脈動");
-const tipColorFolder = tipFolder.addFolder("Color：色");
-const bloomFolder = gui.addFolder("Bloom：発光");
-const randomFolder = gui.addFolder("Random：ランダム");
-const randomAutoFolder = randomFolder.addFolder("Auto：自動");
-const randomActionFolder = randomFolder.addFolder("Action：操作");
-const randomPresetFolder = randomFolder.addFolder("Preset：保存");
-
-shapeTubeFolder.close();
-tipPulseFolder.close();
-tipColorFolder.close();
-bloomFolder.close();
-randomFolder.close();
-randomAutoFolder.close();
-randomPresetFolder.close();
-
-addSpiroControl(shapeCurveFolder, "R", 10, 28, 0.1, "R：大円半径");
-addSpiroControl(shapeCurveFolder, "r", 3, 12, 0.1, "r：小円半径");
-addSpiroControl(shapeCurveFolder, "d", 3, 18, 0.1, "d：ペン位置");
-addSpiroControl(shapeCurveFolder, "turns", 12, 64, 1, "turns：描画周回数");
-addSpiroControl(
-  shapeCurveFolder,
-  "step",
-  0.008,
-  0.04,
-  0.001,
-  "step：点の細かさ",
-);
-addSpiroControl(shapeCurveFolder, "zAmp", 0, 18, 0.1, "zAmp：高さの強さ");
-addSpiroControl(
-  shapeCurveFolder,
-  "zFreq",
-  0.05,
-  1.2,
-  0.01,
-  "zFreq：高さの波数",
-);
-
-addLiveNumberControl(
-  shapeTubeFolder,
-  "tubeRadius",
-  0.08,
-  0.65,
-  0.01,
-  "tubeRadius：チューブ半径",
-  () => {
-    applyTubeAppearance();
   },
-);
-registerGuiController(
-  shapeTubeFolder
-    .add(guiState, "tubeColorMode", {
-      "Rainbow：虹色": "rainbow",
-      "Manual：単色": "manual",
-    })
-    .name("tubeColorMode：本体色モード"),
-).onChange(() => {
-  applyTubeAppearance(false);
-  syncGuiVisibility();
-});
-const tubeColorController = addLiveColorControl(
-  shapeTubeFolder,
-  "tubeColor",
-  "tubeColor：本体色",
-  () => {
-    applyTubeAppearance(false);
+  onTubeAppearanceChange: (rebuildGeometry = true) => {
+    applyTubeAppearance(rebuildGeometry);
   },
-);
-addLiveNumberControl(
-  shapeTubeFolder,
-  "tubeEmissiveIntensity",
-  0,
-  2.4,
-  0.01,
-  "tubeEmissiveIntensity：本体発光",
-  () => {
-    applyTubeAppearance(false);
+  onAudioToggle: () => {
+    void applyAudioSettings(true);
   },
-);
-
-addSpiroControl(motionFolder, "spinX", 0, 0.01, 0.0001, "spinX：X回転速度");
-addSpiroControl(motionFolder, "spinY", 0, 0.01, 0.0001, "spinY：Y回転速度");
-addSpiroControl(motionFolder, "drawSpeed", 1, 30, 1, "drawSpeed：描画速度");
-
-registerGuiController(
-  tipFolder
-    .add(guiState, "tipColorMode", {
-      "Rainbow：虹追従": "rainbow",
-      "Manual：手動": "manual",
-    })
-    .name("colorMode：色モード"),
-).onChange(() => {
-  applyTipAppearance();
-  syncGuiVisibility();
-});
-addTipNumberControl(
-  tipSizeFolder,
-  "headSize",
-  0.2,
-  1.8,
-  0.01,
-  "headSize：芯サイズ",
-);
-addTipNumberControl(
-  tipSizeFolder,
-  "glowSize",
-  0.4,
-  3.8,
-  0.01,
-  "glowSize：発光サイズ",
-);
-addTipNumberControl(
-  tipSizeFolder,
-  "haloSize",
-  1.4,
-  10,
-  0.05,
-  "haloSize：ハローサイズ",
-);
-const headColorController = addTipColorControl(
-  tipColorFolder,
-  "headColor",
-  "headColor：芯の色",
-);
-const glowColorController = addTipColorControl(
-  tipColorFolder,
-  "glowColor",
-  "glowColor：発光色",
-);
-const haloColorController = addTipColorControl(
-  tipColorFolder,
-  "haloColor",
-  "haloColor：ハロー色",
-);
-addLiveNumberControl(
-  tipPulseFolder,
-  "pulseSpeed",
-  0,
-  0.3,
-  0.005,
-  "pulseSpeed：脈動速度",
-  () => {},
-);
-addLiveNumberControl(
-  tipPulseFolder,
-  "pulseAmount",
-  0,
-  0.45,
-  0.01,
-  "pulseAmount：脈動の強さ",
-  () => {},
-);
-
-addBloomControl(
-  bloomFolder,
-  "bloomStrength",
-  0,
-  3,
-  0.01,
-  "bloomStrength：発光の強さ",
-);
-addBloomControl(
-  bloomFolder,
-  "bloomRadius",
-  0,
-  2,
-  0.01,
-  "bloomRadius：にじみの広がり",
-);
-addBloomControl(
-  bloomFolder,
-  "bloomThreshold",
-  0,
-  1,
-  0.01,
-  "bloomThreshold：しきい値",
-);
-
-randomAutoFolder
-  .add(guiState, "autoRandomize")
-  .name("autoRandomize：自動ランダム")
-  .onChange(() => {
+  onAudioVolumeChange: () => {
+    void applyAudioSettings(false);
+  },
+  onScheduleRandomize: () => {
     scheduleRandomize();
-    showToast(guiState.autoRandomize ? "Auto random on" : "Auto random off");
-  });
-
-randomAutoFolder
-  .add(guiState, "randomizeBloom")
-  .name("randomizeBloom：Bloomもランダム")
-  .onChange(() => {
-    showToast(guiState.randomizeBloom ? "Bloom random on" : "Bloom random off");
-  });
-
-randomAutoFolder
-  .add(guiState, "randomizeEveryMs", 2000, 20000, 500)
-  .name("randomizeEveryMs：自動ランダム間隔(ms)")
-  .onFinishChange(() => {
-    scheduleRandomize();
-    showToast(`Randomize every ${guiState.randomizeEveryMs}ms`);
-  });
-
-randomActionFolder
-  .add(guiState, "randomizeNow")
-  .name("randomizeNow：今すぐランダム");
-randomActionFolder.add(guiState, "redraw").name("redraw：再描画");
-randomPresetFolder
-  .add(guiState, "copyShareUrl")
-  .name("copyShareUrl：共有URLコピー");
-randomPresetFolder
-  .add(guiState, "savePreset")
-  .name("savePreset：プリセット保存");
-randomPresetFolder
-  .add(guiState, "loadPreset")
-  .name("loadPreset：プリセット読込");
-
-const tipManualColorControllers = [
-  headColorController,
-  glowColorController,
-  haloColorController,
-];
-const tubeManualColorControllers = [tubeColorController];
-
-syncGuiVisibility();
+  },
+  onShowToast: (message) => {
+    showToast(message);
+  },
+});
 
 // 共有 URL があればその設定を優先し、なければ通常の初期形状を作る。
 if (!loadSharedStateFromUrl()) {
