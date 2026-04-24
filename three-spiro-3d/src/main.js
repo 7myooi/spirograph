@@ -21,6 +21,7 @@ import {
   randomCurveParams,
 } from "./curve-modes.js";
 import { createControlPanel } from "./gui.js";
+import { createMobileControlPanel } from "./mobile-ui.js";
 import {
   randomBloomSettings,
   tipDefaults,
@@ -339,6 +340,10 @@ const guiState = createGuiState({
   },
 });
 
+const mobileUiMedia = window.matchMedia("(max-width: 900px), (pointer: coarse)");
+let controlPanel = null;
+let mobileControlPanel = null;
+
 function applyBloomSettings() {
   bloomPass.strength = guiState.bloomStrength;
   bloomPass.radius = guiState.bloomRadius;
@@ -385,9 +390,18 @@ async function applyAudioSettings(showStatusToast = false) {
 }
 
 function applyFocusModePresentation() {
-  controlPanel.syncVisibility();
-  controlPanel.refreshDisplay();
-  controlPanel.setFocusMode(guiState.focusModeEnabled);
+  controlPanel?.syncVisibility();
+  controlPanel?.refreshDisplay();
+  controlPanel?.setFocusMode(guiState.focusModeEnabled);
+  mobileControlPanel?.syncVisibility();
+  mobileControlPanel?.refreshDisplay();
+  mobileControlPanel?.setFocusMode(guiState.focusModeEnabled);
+}
+
+function syncResponsiveUi() {
+  const isMobileUi = mobileUiMedia.matches;
+  controlPanel?.setVisible(!isMobileUi);
+  mobileControlPanel?.setVisible(isMobileUi);
 }
 
 function getSelectedAmbientPreset() {
@@ -623,8 +637,6 @@ function regenerateSpiro(useRandomParams = false) {
     if (guiState.focusModeEnabled) {
       applySelectedAmbientPreset();
     }
-
-    controlPanel.refreshDisplay();
   } else {
     syncParamsFromGui();
   }
@@ -634,11 +646,11 @@ function regenerateSpiro(useRandomParams = false) {
   applyBloomSettings();
   void applyAudioSettings(false);
   applyTipAppearance();
-  controlPanel.setFocusMode(guiState.focusModeEnabled);
+  applyFocusModePresentation();
   scheduleRandomize();
 }
 
-const controlPanel = createControlPanel({
+const panelOptions = {
   guiState,
   isGuiSyncLocked: () => guiSyncLocked,
   onFocusModeToggle: () => {
@@ -688,7 +700,17 @@ const controlPanel = createControlPanel({
   onShowToast: (message) => {
     showToast(message);
   },
-});
+};
+
+controlPanel = createControlPanel(panelOptions);
+mobileControlPanel = createMobileControlPanel(panelOptions);
+syncResponsiveUi();
+
+if (typeof mobileUiMedia.addEventListener === "function") {
+  mobileUiMedia.addEventListener("change", syncResponsiveUi);
+} else if (typeof mobileUiMedia.addListener === "function") {
+  mobileUiMedia.addListener(syncResponsiveUi);
+}
 
 // 共有 URL があればその設定を優先し、なければ通常の初期形状を作る。
 if (!loadSharedStateFromUrl()) {
@@ -757,4 +779,5 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
   bloomPass.setSize(window.innerWidth, window.innerHeight);
+  syncResponsiveUi();
 });
