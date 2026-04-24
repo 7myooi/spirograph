@@ -32,41 +32,6 @@ npm run preview
 
 相手はその URL を開くだけで、同じ設定のスピログラフを見られます。
 
-## GitHub Pages で公開する
+### 3. 公開 URL 
+https://7myooi.github.io/spirograph/
 
-このリポジトリには GitHub Pages 用の workflow が入っています。
-
-### 1. GitHub へ push する
-
-`main` か `master` ブランチへ push すると、GitHub Actions がビルドして Pages へデプロイします。
-
-### 2. GitHub 側で Pages を有効にする
-
-リポジトリの `Settings > Pages` を開いて、`Build and deployment` を `GitHub Actions` にします。
-
-### 3. 公開 URL を共有する
-
-デプロイ後、GitHub Pages の URL が発行されます。  
-その URL を送れば、複数の人が同時にこのアプリを使えます。
-
-## いまの共有範囲
-
-いまは静的サイトとして公開する構成なので、次の共有に向いています。
-
-- 複数人が同じアプリへアクセスする
-- 共有 URL で同じ設定を再現する
-
-一方で、次のようなリアルタイム共有はまだ入っていません。
-
-- 誰かの操作が他の人の画面へ即時反映される
-- 複数人で同じプリセット一覧を共有する
-- ユーザーごとの保存データをサーバーに持つ
-
-ここまでやるなら、次は Firebase / Supabase / 自前 API などのバックエンドが必要です。
-
-## 次の拡張候補
-
-- GUI と状態管理の分離
-- JSON export / import
-- 複数プリセットスロット
-- リアルタイム共有用バックエンド追加
