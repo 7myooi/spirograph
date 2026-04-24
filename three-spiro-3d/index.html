@@ -37,10 +37,22 @@
         font-size: 14px;
         line-height: 1.5;
         backdrop-filter: blur(8px);
+        transition:
+          opacity 180ms ease,
+          background-color 180ms ease,
+          border-color 180ms ease,
+          transform 180ms ease;
       }
 
       .hud b {
         color: #ffffff;
+      }
+
+      body[data-focus-mode="true"] .hud {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-8px);
       }
     </style>
   </head>
