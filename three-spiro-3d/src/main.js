@@ -390,6 +390,7 @@ async function applyAudioSettings(showStatusToast = false) {
 }
 
 function applyFocusModePresentation() {
+  document.body.dataset.focusMode = guiState.focusModeEnabled ? "true" : "false";
   controlPanel?.syncVisibility();
   controlPanel?.refreshDisplay();
   controlPanel?.setFocusMode(guiState.focusModeEnabled);
