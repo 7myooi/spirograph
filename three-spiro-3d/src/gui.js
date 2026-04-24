@@ -471,6 +471,10 @@ export function createControlPanel({
     guiControllers.forEach((controller) => controller.updateDisplay());
   }
 
+  function setVisible(isVisible) {
+    gui.domElement.style.display = isVisible ? "" : "none";
+  }
+
   syncVisibility();
   setFocusMode(guiState.focusModeEnabled);
 
@@ -478,5 +482,6 @@ export function createControlPanel({
     refreshDisplay,
     syncVisibility,
     setFocusMode,
+    setVisible,
   };
 }

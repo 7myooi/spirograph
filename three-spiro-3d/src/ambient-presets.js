@@ -23,7 +23,6 @@ export const AMBIENT_PRESET_DEFINITIONS = [
       drawSpeed: 3,
       spinX: 0.00035,
       spinY: 0.0009,
-      bgmEnabled: true,
       bgmVolume: 0.16,
     },
     visuals: {
@@ -105,7 +104,6 @@ export const AMBIENT_PRESET_DEFINITIONS = [
       drawSpeed: 2,
       spinX: 0.00022,
       spinY: 0.00072,
-      bgmEnabled: true,
       bgmVolume: 0.12,
     },
     visuals: {
@@ -187,7 +185,6 @@ export const AMBIENT_PRESET_DEFINITIONS = [
       drawSpeed: 5,
       spinX: 0.00062,
       spinY: 0.00145,
-      bgmEnabled: true,
       bgmVolume: 0.2,
     },
     visuals: {
@@ -269,7 +266,6 @@ export const AMBIENT_PRESET_DEFINITIONS = [
       drawSpeed: 3,
       spinX: 0.00018,
       spinY: 0.00052,
-      bgmEnabled: true,
       bgmVolume: 0.14,
     },
     visuals: {
