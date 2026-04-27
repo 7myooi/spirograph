@@ -70,7 +70,7 @@ composer.addPass(renderPass);
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   // 強さ / にじみ幅 / しきい値。あとで GUI から調整できる。
-  1.2,
+  2.0,
   0.8,
   0.15,
 );
@@ -191,7 +191,7 @@ const cosmicSweep = createCosmicSweep(spaceBackground.group);
 
 // チューブ生成時に使う補助状態。毎フレーム計算し直さずここで覚えておく。
 const tubeState = {
-  radius: 0.2,
+  radius: 0.15,
   radialSegments: 16,
   tubularSegments: 0,
   indicesPerSegment: 0,
@@ -214,7 +214,9 @@ let curveStartedAtMs = performance.now();
 const effectClock = new THREE.Clock();
 
 function syncAppStateAttributes() {
-  document.body.dataset.focusMode = guiState.focusModeEnabled ? "true" : "false";
+  document.body.dataset.focusMode = guiState.focusModeEnabled
+    ? "true"
+    : "false";
   document.body.dataset.ambientPreset = guiState.ambientPreset;
   document.body.dataset.curveMode = guiState.curveMode;
   document.body.dataset.bgmEnabled = guiState.bgmEnabled ? "true" : "false";
@@ -397,7 +399,9 @@ const guiState = createGuiState({
   },
 });
 
-const mobileUiMedia = window.matchMedia("(max-width: 900px), (pointer: coarse)");
+const mobileUiMedia = window.matchMedia(
+  "(max-width: 900px), (pointer: coarse)",
+);
 let controlPanel = null;
 let mobileControlPanel = null;
 
@@ -498,7 +502,9 @@ function getNextAmbientPresetKey() {
 }
 
 function getNextCurveModeKey() {
-  const curveModeKeys = CURVE_MODE_DEFINITIONS.map((definition) => definition.key);
+  const curveModeKeys = CURVE_MODE_DEFINITIONS.map(
+    (definition) => definition.key,
+  );
   const currentIndex = curveModeKeys.indexOf(guiState.curveMode);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   return curveModeKeys[(safeIndex + 1) % curveModeKeys.length];
@@ -710,7 +716,11 @@ function getCompletionWaitMs(targetCycleMs, minimumWaitMs = 900) {
 function scheduleRandomize() {
   clearRandomizeTimer();
 
-  if (guiState.autoRandomize && drawCount >= points.length && points.length > 0) {
+  if (
+    guiState.autoRandomize &&
+    drawCount >= points.length &&
+    points.length > 0
+  ) {
     randomizeTimeoutId = window.setTimeout(
       () => regenerateSpiro(true),
       getCompletionWaitMs(guiState.randomizeEveryMs),

@@ -60,7 +60,7 @@ export function createGuiState({
     haloColor: tipDefaults.haloColor,
     pulseSpeed: 0.08,
     pulseAmount: 0.18,
-    tubeRadius: 0.2,
+    tubeRadius: 0.15,
     tubeEmissiveIntensity: 0.95,
     tubeColorMode: tubeDefaults.colorMode,
     tubeColor: tubeDefaults.color,
@@ -87,9 +87,7 @@ function encodeShareState(state) {
 function decodeShareState(token) {
   const normalized = token.replace(/-/g, "+").replace(/_/g, "/");
   const padding =
-    normalized.length % 4 === 0
-      ? ""
-      : "=".repeat(4 - (normalized.length % 4));
+    normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
 
   return JSON.parse(atob(normalized + padding));
 }
