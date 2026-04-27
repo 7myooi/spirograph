@@ -48,7 +48,7 @@ export function createGuiState({
     autoRandomize: true,
     randomizeBloom: false,
     randomizeEveryMs: 9000,
-    bloomStrength: 1.2,
+    bloomStrength: 2.0,
     bloomRadius: 0.8,
     bloomThreshold: 0.15,
     tipColorMode: "rainbow",
