@@ -1,0 +1,19 @@
+{
+  "name": "3D Spirograph Galaxy",
+  "short_name": "Spirograph",
+  "description": "Ambient な 3D 生成アートを眺めながら、雰囲気や軌跡を調整できる Three.js アプリです。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "background_color": "#050510",
+  "theme_color": "#050510",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
