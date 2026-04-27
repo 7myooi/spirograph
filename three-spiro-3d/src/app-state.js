@@ -7,6 +7,8 @@ export const PRESET_STORAGE_KEY = "three-spiro-3d-preset";
 const SHARE_STATE_KEYS = [
   ...ALL_CURVE_PARAM_KEYS,
   "ambientPreset",
+  "autoDriftEnabled",
+  "autoDriftEveryMs",
   "autoRandomize",
   "randomizeBloom",
   "randomizeEveryMs",
@@ -41,6 +43,8 @@ export function createGuiState({
     ...activeParams,
     focusModeEnabled: false,
     ambientPreset: "calm",
+    autoDriftEnabled: false,
+    autoDriftEveryMs: 45000,
     autoRandomize: true,
     randomizeBloom: false,
     randomizeEveryMs: 9000,

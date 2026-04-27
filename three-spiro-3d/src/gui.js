@@ -21,8 +21,8 @@ export function createControlPanel({
   onScheduleRandomize,
   onShowToast,
 }) {
-  // 日本語ラベルが見切れにくいよう、少し幅を広めに取る。
   const gui = new GUI({ title: "Spiro Controls", width: 380 });
+  gui.domElement.dataset.testid = "desktop-gui";
   const guiControllers = [];
 
   function registerGuiController(controller) {
@@ -174,7 +174,7 @@ export function createControlPanel({
   registerGuiController(
     focusFolder
       .add(guiState, "focusModeEnabled")
-      .name("focusModeEnabled：Ambient化"),
+      .name("focusModeEnabled：ambient集中"),
   ).onChange(() => {
     onFocusModeToggle();
   });
@@ -186,6 +186,27 @@ export function createControlPanel({
   ).onChange(() => {
     onAmbientPresetChange();
   });
+
+  registerGuiController(
+    focusFolder
+      .add(guiState, "autoDriftEnabled")
+      .name("autoDriftEnabled：自動ドリフト"),
+  ).onChange(() => {
+    onScheduleRandomize();
+    onShowToast(guiState.autoDriftEnabled ? "Auto drift on" : "Auto drift off");
+  });
+
+  registerGuiController(
+    focusFolder
+      .add(guiState, "autoDriftEveryMs", 15000, 180000, 5000)
+      .name("autoDriftEveryMs：切替間隔(ms)"),
+  ).onFinishChange(() => {
+    onScheduleRandomize();
+    onShowToast(`Drift every ${guiState.autoDriftEveryMs}ms`);
+  });
+
+  focusFolder.add(guiState, "toggleFullscreen").name("toggleFullscreen：全画面");
+  focusFolder.add(guiState, "installApp").name("installApp：アプリ追加");
 
   registerGuiController(
     shapeModeFolder
@@ -222,7 +243,7 @@ export function createControlPanel({
   registerGuiController(
     shapeTubeFolder
       .add(guiState, "tubeColorMode", {
-        "Rainbow：虹色": "rainbow",
+        "Rainbow：虹追従": "rainbow",
         "Manual：手動": "manual",
       })
       .name("tubeColorMode：本体色モード"),

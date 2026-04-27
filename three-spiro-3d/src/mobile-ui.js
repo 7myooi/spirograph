@@ -297,9 +297,12 @@ function formatControlValue(step, value) {
   return numericValue.toFixed(4);
 }
 
-function createSection(title, isOpen = false) {
+function createSection(title, isOpen = false, testId = "") {
   const details = document.createElement("details");
   details.className = "spiro-mobile-ui__section";
+  if (testId) {
+    details.dataset.testid = testId;
+  }
   details.open = isOpen;
 
   const summary = document.createElement("summary");
@@ -313,9 +316,17 @@ function createSection(title, isOpen = false) {
   return { details, body };
 }
 
-function createToggleControl({ mount, guiState, prop, label, onChange }) {
+function createToggleControl({
+  mount,
+  guiState,
+  prop,
+  label,
+  onChange,
+  testId = prop,
+}) {
   const row = document.createElement("div");
   row.className = "spiro-mobile-ui__control";
+  row.dataset.testid = `control-${testId}`;
 
   const toggleRow = document.createElement("div");
   toggleRow.className = "spiro-mobile-ui__toggle-row";
@@ -352,9 +363,11 @@ function createSelectControl({
   label,
   options,
   onChange,
+  testId = prop,
 }) {
   const row = document.createElement("div");
   row.className = "spiro-mobile-ui__control";
+  row.dataset.testid = `control-${testId}`;
 
   const labelRow = document.createElement("div");
   labelRow.className = "spiro-mobile-ui__label-row";
@@ -397,9 +410,11 @@ function createRangeControl({
   step,
   onInput,
   onChange,
+  testId = prop,
 }) {
   const row = document.createElement("div");
   row.className = "spiro-mobile-ui__control";
+  row.dataset.testid = `control-${testId}`;
 
   const labelRow = document.createElement("div");
   labelRow.className = "spiro-mobile-ui__label-row";
@@ -460,6 +475,9 @@ function createActionButtonRow(buttons) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `spiro-mobile-ui__button ${buttonConfig.primary ? "spiro-mobile-ui__button--primary" : ""}`.trim();
+    if (buttonConfig.testId) {
+      button.dataset.testid = buttonConfig.testId;
+    }
     button.textContent = buttonConfig.label;
     button.addEventListener("click", buttonConfig.onClick);
     row.appendChild(button);
@@ -483,6 +501,7 @@ export function createMobileControlPanel({
 
   const root = document.createElement("div");
   root.className = "spiro-mobile-ui";
+  root.dataset.testid = "mobile-ui";
   root.dataset.open = "false";
   root.dataset.visible = "false";
   root.dataset.focus = "false";
@@ -494,11 +513,13 @@ export function createMobileControlPanel({
   const toggleButton = document.createElement("button");
   toggleButton.type = "button";
   toggleButton.className = "spiro-mobile-ui__toggle";
+  toggleButton.dataset.testid = "mobile-ui-toggle";
   toggleButton.textContent = "調整";
   root.appendChild(toggleButton);
 
   const sheet = document.createElement("div");
   sheet.className = "spiro-mobile-ui__sheet";
+  sheet.dataset.testid = "mobile-ui-sheet";
   root.appendChild(sheet);
 
   const header = document.createElement("div");
@@ -598,6 +619,35 @@ export function createMobileControlPanel({
       onChange: () => {
         onScheduleRandomize();
         onShowToast(guiState.autoRandomize ? "Auto random on" : "Auto random off");
+      },
+    }),
+  );
+
+  registerRefresher(
+    createToggleControl({
+      mount: ambientSection.body,
+      guiState,
+      prop: "autoDriftEnabled",
+      label: "autoDriftEnabled：自動ドリフト",
+      onChange: () => {
+        onScheduleRandomize();
+        onShowToast(guiState.autoDriftEnabled ? "Auto drift on" : "Auto drift off");
+      },
+    }),
+  );
+
+  registerRefresher(
+    createRangeControl({
+      mount: ambientSection.body,
+      guiState,
+      prop: "autoDriftEveryMs",
+      label: "autoDriftEveryMs：切替間隔(ms)",
+      min: 15000,
+      max: 180000,
+      step: 5000,
+      onChange: () => {
+        onScheduleRandomize();
+        onShowToast(`Drift every ${guiState.autoDriftEveryMs}ms`);
       },
     }),
   );
@@ -790,6 +840,18 @@ export function createMobileControlPanel({
         label: "プリセット保存",
         onClick: () => {
           guiState.savePreset();
+        },
+      },
+      {
+        label: "全画面",
+        onClick: () => {
+          void guiState.toggleFullscreen();
+        },
+      },
+      {
+        label: "アプリ追加",
+        onClick: () => {
+          void guiState.installApp();
         },
       },
       {

@@ -12,16 +12,21 @@ import {
   savePresetToStorage,
 } from "./app-state.js";
 import { createAmbientAudioController } from "./audio.js";
-import { getAmbientPresetDefinition } from "./ambient-presets.js";
+import {
+  AMBIENT_PRESET_DEFINITIONS,
+  getAmbientPresetDefinition,
+} from "./ambient-presets.js";
 import { createSpaceBackground, SCENE_FOG_COLOR } from "./background.js";
 import { createCosmicSweep } from "./cosmic-sweep.js";
 import {
   buildCurvePoints,
+  CURVE_MODE_DEFINITIONS,
   pickCurveParams,
   randomCurveParams,
 } from "./curve-modes.js";
 import { createControlPanel } from "./gui.js";
 import { createMobileControlPanel } from "./mobile-ui.js";
+import { createPwaController } from "./pwa.js";
 import {
   randomBloomSettings,
   tipDefaults,
@@ -77,6 +82,12 @@ const ambientAudio = createAmbientAudioController({
     showToast("BGM started");
   },
 });
+const pwaController = createPwaController({
+  onInstalled: () => {
+    showToast("App installed");
+  },
+});
+void pwaController.registerServiceWorker();
 
 const ambientLight = new THREE.HemisphereLight(0xaec5ff, 0x05060a, 1.2);
 scene.add(ambientLight);
@@ -192,11 +203,25 @@ let drawCount = 0;
 // pulseTime は先端発光の脈動用。
 let pulseTime = 0;
 let randomizeTimeoutId = null;
+let driftTimeoutId = null;
+let driftPending = false;
 // GUI へ値を戻すときに onChange を暴発させないためのロック。
 let guiSyncLocked = false;
 let tubeGeometry = null;
 let focusModeSnapshot = null;
+let curveCompletionHandled = false;
+let curveStartedAtMs = performance.now();
 const effectClock = new THREE.Clock();
+
+function syncAppStateAttributes() {
+  document.body.dataset.focusMode = guiState.focusModeEnabled ? "true" : "false";
+  document.body.dataset.ambientPreset = guiState.ambientPreset;
+  document.body.dataset.curveMode = guiState.curveMode;
+  document.body.dataset.bgmEnabled = guiState.bgmEnabled ? "true" : "false";
+  document.body.dataset.autoDriftEnabled = guiState.autoDriftEnabled
+    ? "true"
+    : "false";
+}
 
 // 点列が変わったときやチューブ半径が変わったときに、立体の軌跡を作り直す。
 function rebuildTubeGeometry() {
@@ -302,8 +327,40 @@ const guiState = createGuiState({
       rebuildFromActiveParams();
       applyBloomSettings();
       applyTipAppearance();
-      scheduleRandomize();
+      scheduleAutomation();
       showToast("Redrawn");
+    },
+    toggleFullscreen: async () => {
+      try {
+        const result = await pwaController.toggleFullscreen();
+
+        if (!result.supported) {
+          showToast("Fullscreen unavailable");
+          return;
+        }
+
+        showToast(result.fullscreen ? "Fullscreen on" : "Fullscreen off");
+      } catch {
+        showToast("Fullscreen unavailable");
+      }
+    },
+    installApp: async () => {
+      try {
+        const result = await pwaController.promptInstall();
+
+        if (!result.available) {
+          showToast("Install unavailable");
+          return;
+        }
+
+        showToast(
+          result.outcome === "accepted"
+            ? "Install started"
+            : "Install dismissed",
+        );
+      } catch {
+        showToast("Install unavailable");
+      }
     },
     copyShareUrl: () => {
       const shareUrl = buildShareUrl(guiState, window.location.href);
@@ -351,6 +408,7 @@ function applyBloomSettings() {
 }
 
 async function applyAudioSettings(showStatusToast = false) {
+  syncAppStateAttributes();
   const ambientPreset = guiState.focusModeEnabled
     ? getSelectedAmbientPreset()
     : null;
@@ -390,7 +448,7 @@ async function applyAudioSettings(showStatusToast = false) {
 }
 
 function applyFocusModePresentation() {
-  document.body.dataset.focusMode = guiState.focusModeEnabled ? "true" : "false";
+  syncAppStateAttributes();
   controlPanel?.syncVisibility();
   controlPanel?.refreshDisplay();
   controlPanel?.setFocusMode(guiState.focusModeEnabled);
@@ -401,6 +459,7 @@ function applyFocusModePresentation() {
 
 function syncResponsiveUi() {
   const isMobileUi = mobileUiMedia.matches;
+  document.body.dataset.mobileUi = isMobileUi ? "true" : "false";
   controlPanel?.setVisible(!isMobileUi);
   mobileControlPanel?.setVisible(isMobileUi);
 }
@@ -431,6 +490,20 @@ function applySelectedAmbientPreset() {
   return preset;
 }
 
+function getNextAmbientPresetKey() {
+  const presetKeys = AMBIENT_PRESET_DEFINITIONS.map((preset) => preset.key);
+  const currentIndex = presetKeys.indexOf(guiState.ambientPreset);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  return presetKeys[(safeIndex + 1) % presetKeys.length];
+}
+
+function getNextCurveModeKey() {
+  const curveModeKeys = CURVE_MODE_DEFINITIONS.map((definition) => definition.key);
+  const currentIndex = curveModeKeys.indexOf(guiState.curveMode);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  return curveModeKeys[(safeIndex + 1) % curveModeKeys.length];
+}
+
 function setFocusModeEnabled(nextEnabled, showStatusToast = true) {
   if (nextEnabled) {
     if (focusModeSnapshot === null) {
@@ -458,7 +531,7 @@ function setFocusModeEnabled(nextEnabled, showStatusToast = true) {
   applyTubeAppearance(false);
   applyAmbientPresetVisuals();
   applyFocusModePresentation();
-  scheduleRandomize();
+  scheduleAutomation({ resetDrift: true });
 
   if (showStatusToast) {
     showToast(nextEnabled ? "Focus mode on" : "Focus mode off");
@@ -553,7 +626,7 @@ function applySerializableState(nextState) {
   applyAmbientPresetVisuals();
   rebuildFromActiveParams();
   applyFocusModePresentation();
-  scheduleRandomize();
+  scheduleAutomation({ resetDrift: true });
 }
 
 function loadSharedStateFromUrl() {
@@ -576,6 +649,8 @@ function applySpiro(pointsData, colorsData) {
   points = pointsData;
   drawCount = 0;
   pulseTime = 0;
+  curveCompletionHandled = false;
+  curveStartedAtMs = performance.now();
   // 形が切り替わるタイミングで、背景演出もいったんリセットする。
   cosmicSweep.reset();
 
@@ -609,20 +684,98 @@ function rebuildFromActiveParams() {
   applySpiro(nextPoints, nextColors);
 }
 
-// 自動ランダム化はタイマーをひとつに絞って、GUI 変更時に組み直しやすくする。
-function scheduleRandomize() {
+function clearRandomizeTimer() {
   if (randomizeTimeoutId !== null) {
     window.clearTimeout(randomizeTimeoutId);
     randomizeTimeoutId = null;
   }
+}
 
-  if (guiState.autoRandomize) {
-    // 設定された間隔のあとに、もう一度 regenerate を呼び出す。
+function clearDriftTimer() {
+  if (driftTimeoutId !== null) {
+    window.clearTimeout(driftTimeoutId);
+    driftTimeoutId = null;
+  }
+}
+
+function getCompletionWaitMs(targetCycleMs, minimumWaitMs = 900) {
+  // 1 本描き始めてから完成までにかかった時間を引いて、
+  // 「1 サイクル全体の長さ」が targetCycleMs に近くなるよう調整する。
+  const elapsedMs = performance.now() - curveStartedAtMs;
+  return Math.max(minimumWaitMs, targetCycleMs - elapsedMs);
+}
+
+// 自動ランダム化は「1 サイクル全体の長さ」を目安にして、
+// 描き終わるまでに使った時間ぶんだけ完成後の待機を短くする。
+function scheduleRandomize() {
+  clearRandomizeTimer();
+
+  if (guiState.autoRandomize && drawCount >= points.length && points.length > 0) {
     randomizeTimeoutId = window.setTimeout(
       () => regenerateSpiro(true),
-      guiState.randomizeEveryMs,
+      getCompletionWaitMs(guiState.randomizeEveryMs),
     );
   }
+}
+
+function scheduleDrift(resetTimer = false) {
+  if (!guiState.autoDriftEnabled || !guiState.focusModeEnabled) {
+    driftPending = false;
+    clearDriftTimer();
+    return;
+  }
+
+  if (driftTimeoutId !== null && !resetTimer) {
+    return;
+  }
+
+  if (resetTimer) {
+    clearDriftTimer();
+  }
+
+  driftTimeoutId = window.setTimeout(() => {
+    driftTimeoutId = null;
+
+    if (drawCount >= points.length && points.length > 0) {
+      performAutoDrift();
+      return;
+    }
+
+    driftPending = true;
+  }, guiState.autoDriftEveryMs);
+}
+
+function scheduleAutomation({ resetDrift = false } = {}) {
+  syncAppStateAttributes();
+  scheduleRandomize();
+  scheduleDrift(resetDrift);
+}
+
+function performAutoDrift() {
+  driftPending = false;
+  clearRandomizeTimer();
+  clearDriftTimer();
+
+  guiState.ambientPreset = getNextAmbientPresetKey();
+  guiState.curveMode = getNextCurveModeKey();
+  activeParams = randomCurveParams(guiState.curveMode);
+  syncGuiFromParams();
+
+  if (guiState.focusModeEnabled) {
+    applySelectedAmbientPreset();
+  }
+
+  syncParamsFromGui();
+  applyTubeAppearance(false);
+  rebuildFromActiveParams();
+  applyBloomSettings();
+  void applyAudioSettings(false);
+  applyTipAppearance();
+  applyAmbientPresetVisuals();
+  applyFocusModePresentation();
+  scheduleAutomation({ resetDrift: true });
+
+  showToast(`Drifted: ${getSelectedAmbientPreset().label}`);
 }
 
 // ランダム再生成時は必要に応じて Bloom も変えて、その結果を GUI 表示へ戻す。
@@ -648,7 +801,7 @@ function regenerateSpiro(useRandomParams = false) {
   void applyAudioSettings(false);
   applyTipAppearance();
   applyFocusModePresentation();
-  scheduleRandomize();
+  scheduleAutomation();
 }
 
 const panelOptions = {
@@ -670,7 +823,7 @@ const panelOptions = {
       applyAmbientPresetVisuals();
       rebuildFromActiveParams();
       applyFocusModePresentation();
-      scheduleRandomize();
+      scheduleAutomation({ resetDrift: true });
     }
 
     showToast(`Ambient preset: ${preset.label}`);
@@ -678,7 +831,7 @@ const panelOptions = {
   onShapeControlFinish: () => {
     syncParamsFromGui();
     rebuildFromActiveParams();
-    scheduleRandomize();
+    scheduleAutomation();
   },
   onBloomChange: () => {
     applyBloomSettings();
@@ -696,7 +849,7 @@ const panelOptions = {
     void applyAudioSettings(false);
   },
   onScheduleRandomize: () => {
-    scheduleRandomize();
+    scheduleAutomation({ resetDrift: true });
   },
   onShowToast: (message) => {
     showToast(message);
@@ -737,6 +890,15 @@ function animate() {
     haloSprite.position.copy(currentPoint);
     tipLight.position.copy(currentPoint);
     updateTipColors((drawCount - 1) / Math.max(1, points.length - 1));
+
+    if (drawCount >= points.length && !curveCompletionHandled) {
+      curveCompletionHandled = true;
+      if (driftPending) {
+        performAutoDrift();
+      } else {
+        scheduleRandomize();
+      }
+    }
   }
 
   pulseTime += guiState.pulseSpeed;
